@@ -60,6 +60,6 @@ test_rst = trainer.test(test_dl)
 
 #### 非常规训练流程
 
-- 第1步：继承`loops.TrainerBase`类，定制满足需要的`Trainer`，实现`train_step`方法和`evaluate_step`方法
+- 第1步：继承`torchepochs.TrainerBase`类，定制满足需要的`Trainer`，实现`train_step`方法和`evaluate_step`方法
 - 第2步：调用定制`Trainer`训练模型。
 
