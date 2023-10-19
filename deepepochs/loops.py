@@ -11,6 +11,19 @@ import numpy as np
 from typing import List, Callable
 
 
+
+def flatten_dict(d, parent_key='', sep='.'):
+    """flatten a dict with dict as values"""
+    items = []
+    for k, v in d.items():
+        new_key = f'{parent_key}{sep}{k}' if parent_key else k
+        if isinstance(v, dict):
+            items.extend(flatten_dict(v, new_key, sep).items())
+        else:
+            items.append((new_key, v))
+    return dict(items)
+
+
 def log_batch(metrics, epoch_idx, epochs, batch_idx, batchs, stage):
     """输出batch指标值"""
     batch_info = info(metrics)
@@ -158,7 +171,7 @@ class PatchBase:
 class ValuePatch(PatchBase):
     def __init__(self, batch_mean_value, batch_size):
         """
-        主要用于根据mini-batch平均损失得到epoch平均损失。也可用于与损失相似的数值的累积。
+        主要用于根据mini-batch平均损失得到epoch平均损失（也可用于与损失相似的数值的累积平均计算），支持字典值的累积平均计算。
         例如：
             batch 1的平均损失为 loss1, 批量大小为 bsize1；
             batch 2的平均损失为 loss2, 批量大小为 bsize3；
@@ -171,15 +184,21 @@ class ValuePatch(PatchBase):
                 vp2()                            # batch 2上的平均扣抽
                 vp()                    # 两个mini-batch的平均损失
         Args:
-            batch_mean_value: 一个mini-batch的平均值，例如平均损失
+            batch_mean_value: 一个mini-batch的平均值，例如平均损失；或者多个mini-batch平均值组成的字典。
             batch_size: mini-batch的大小
         """
         super().__init__()
-        self.batch_value = batch_mean_value * batch_size
+        if isinstance(batch_mean_value, dict):
+            self.batch_value = {k: v * batch_size for k, v in batch_mean_value.items()}
+        else:
+            self.batch_value = batch_mean_value * batch_size
         self.batch_size = batch_size
 
     def __call__(self):
-        return self.batch_value / self.batch_size
+        if isinstance(self.batch_value, dict):
+            return {k: v / self.batch_size for k, v in self.batch_value.items()}
+        else:
+            return self.batch_value / self.batch_size
 
     def __add__(self, obj):
         return self.__add(obj)
@@ -192,7 +211,14 @@ class ValuePatch(PatchBase):
             return self
         assert isinstance(obj, self.__class__), '相加的两个Patch的类型不一致！'
         new_obj = deepcopy(self)
-        new_obj.batch_value += obj.batch_value
+        if isinstance(self.batch_value, dict):
+            assert isinstance(obj.batch_value, dict) and len(self.batch_value) == len(obj.batch_value), '相加的两个Patch值不匹配！'
+            keys = self.batch_value.keys()
+            keys_ = obj.batch_value.keys()
+            assert len(set(keys).difference(set(keys_))) == 0, '相加的两个Patch值（字典）的key不一致！'
+            new_obj.batch_value = {k: new_obj.batch_value[k]+obj.batch_value[k] for k in keys}
+        else:
+            new_obj.batch_value += obj.batch_value
         new_obj.batch_size += obj.batch_size
         return new_obj
 
@@ -328,10 +354,10 @@ class TrainerBase:
                     train_metrics.append(train_ms)
                     with torch.no_grad():
                         # 计算当前batch的指标并输出
-                        log_batch(exec_dict(train_ms), epoch_idx+1, self.epochs, batch_idx+1, batchs, 'TRAIN')
+                        log_batch(flatten_dict(exec_dict(train_ms), sep=''), epoch_idx+1, self.epochs, batch_idx+1, batchs, 'TRAIN')
                 with torch.no_grad():
                     # 计算当前epoch的指标
-                    train_metrics = exec_dicts(train_metrics)
+                    train_metrics = flatten_dict(exec_dicts(train_metrics), sep='')
                 progress['train'].append(train_metrics)
 
                 # validation
@@ -344,9 +370,9 @@ class TrainerBase:
                             val_ms = self.evaluate_step(batch_x.to(self.device), batch_y.to(self.device))
                             val_metrics.append(val_ms)
                             # 计算当前batch的指标并输出
-                            log_batch(exec_dict(val_ms), epoch_idx+1, self.epochs, batch_idx+1, batchs, 'VAL')
+                            log_batch(flatten_dict(exec_dict(val_ms), sep=''), epoch_idx+1, self.epochs, batch_idx+1, batchs, 'VAL')
                         # 计算当前epoch的指标
-                        val_metrics = exec_dicts(val_metrics)
+                        val_metrics = flatten_dict(exec_dicts(val_metrics), sep='')
                         progress['val'].append(val_metrics)
                     # 输出当前epoch的训练和验证结果
                     log_epoch({'train': train_metrics, 'val': val_metrics}, epoch_idx+1, self.epochs)
@@ -376,9 +402,9 @@ class TrainerBase:
                 test_ms = self.evaluate_step(batch_x.to(self.device), batch_y.to(self.device))
                 test_metrics.append(test_ms)
                 # 计算当前batch的指标并输出
-                log_batch(exec_dict(test_ms), 1, 1, batch_idx+1, batchs, 'TEST')
+                log_batch(flatten_dict(exec_dict(test_ms), sep=''), 1, 1, batch_idx+1, batchs, 'TEST')
             # 计算当前epoch的指标
-            test_metrics = exec_dicts(test_metrics)
+            test_metrics = flatten_dict(exec_dicts(test_metrics), sep='')
         log_epoch({'test': test_metrics}, 1, 1)
         return to_numpy(test_metrics)
 
