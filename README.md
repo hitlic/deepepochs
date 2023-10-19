@@ -1,4 +1,4 @@
-# loops
+# deepepochs
 Pytorch模型简易训练工具
 
 ### 使用
@@ -6,7 +6,7 @@ Pytorch模型简易训练工具
 #### 常规训练流程
 
 ```python
-from trainer import Trainer, Checker
+from deepepochs import Trainer, Checker
 import torch
 from torch import nn
 from torch.nn import functional as F

@@ -1,4 +1,4 @@
-from loops import TrainerBase, ValuePatch, Patch, Checker  # pylint: disable=W0611
+from .loops import TrainerBase, ValuePatch, Patch, Checker  # pylint: disable=W0611
 
 
 class Trainer(TrainerBase):
