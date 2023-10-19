@@ -46,7 +46,16 @@ def print_out(content, end='\r\n'):
 
 
 def concat_dicts(dicts):
-    return {k: [to_numpy(d[k]) for d in dicts] for k in dicts[0]}
+    return {k: [to_numpy(d.get(k, 0)) for d in dicts] for k in keyset(dicts)}
+
+
+def keyset(dicts):
+    keys = list(dicts[0].keys())
+    keyset = list(set.union(*[set(d.keys()) for d in dicts]))
+    for k in keyset:  # 目的是尽量保证key的出现顺序
+        if k not in keys:
+            keys.append(k)
+    return keys
 
 
 def to_numpy(data):
@@ -258,7 +267,7 @@ def exec_dicts(patch_dicts):
     """
     if len(patch_dicts) == 0:
         return None
-    return {k: sum(dic[k] for dic in patch_dicts)() for k in patch_dicts[0]}
+    return {k: sum(dic[k] for dic in patch_dicts)() for k in keyset(patch_dicts)}
 
 
 def default_loss(preds, targets):
