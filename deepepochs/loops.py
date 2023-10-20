@@ -3,13 +3,13 @@
 """
 import os
 from os import path as osp
+import abc
 from copy import deepcopy
 from collections import defaultdict
 import torch
 from torch.optim import Adam
 import numpy as np
 from typing import List, Callable
-
 
 
 def flatten_dict(d, parent_key='', sep='.'):
@@ -164,8 +164,40 @@ class Checker:
         self.model.load_state_dict(torch.load(self.path))
 
 
-class PatchBase:
-    pass
+class PatchBase(abc.ABC):
+    """
+        所有Patch对象的基类。
+        Patch对象对一个mini-batch的模型输出数据和数据的处理方法进行了封装，用于方便地计算多个mini-batch或epoch
+    的累积结果。主要用于平均损失和累积计算（ValuePack）和指标的累积计算（TensorPack）。
+        TensorPack封装了指标函数、模型预测输出和标签，可能会占用较多存储空间。可以通过定义新的Patch类型实现更高效
+    的指标计算，例如基于混淆矩阵的指标等。
+        参见ValuePack和TensorPack代码和文档，以及trainer.Trainer的train_step方法和evaluate_step方法。
+    """
+    def __add__(self, obj):
+        return self.add(obj)
+
+    def __radd__(self, obj):
+        return self.add(obj)
+
+    def __call__(self):
+        return self.forward()
+
+    @abc.abstractmethod
+    def forward(self):
+        """
+        基于当前Patch中保存的数据，计算一个结果（如指标值）并返回，被__call__方法自动调用。
+        """
+
+    @abc.abstractmethod
+    def add(self, obj):
+        """
+        用于重载“+”运算符，将self和obj两个对象相加，得到一个新的对象。
+        注意1：如果obj为0则返回self
+        注意2：在相加之前检查self和obj是否能够相加
+        """
+        if obj == 0:
+            return self
+        return None
 
 
 class ValuePatch(PatchBase):
@@ -194,19 +226,13 @@ class ValuePatch(PatchBase):
             self.batch_value = batch_mean_value * batch_size
         self.batch_size = batch_size
 
-    def __call__(self):
+    def forward(self):
         if isinstance(self.batch_value, dict):
             return {k: v / self.batch_size for k, v in self.batch_value.items()}
         else:
             return self.batch_value / self.batch_size
 
-    def __add__(self, obj):
-        return self.__add(obj)
-
-    def __radd__(self, obj):
-        return self.__add(obj)
-
-    def __add(self, obj):
+    def add(self, obj):
         if obj == 0:
             return self
         assert isinstance(obj, self.__class__), '相加的两个Patch的类型不一致！'
@@ -223,7 +249,7 @@ class ValuePatch(PatchBase):
         return new_obj
 
 
-class Patch(PatchBase):
+class TensorPatch(PatchBase):
     def __init__(self, metric, batch_preds, batch_targets=None):
         """
         用于类积多个mini-batch的preds和targets，计算Epoch的指标。
@@ -255,18 +281,12 @@ class Patch(PatchBase):
 
         self.concat = torch.concat if isinstance(self.batch_preds[0], torch.Tensor) else np.concatenate
 
-    def __call__(self):
+    def forward(self):
         preds = self.concat(self.batch_preds, 0)
         targets = None if self.batch_targets is None else self.concat(self.batch_targets, 0)
         return self.metric(preds, targets)
 
-    def __add__(self, obj):
-        return self.__add(obj)
-
-    def __radd__(self, obj):
-        return self.__add(obj)
-
-    def __add(self, obj):
+    def add(self, obj):
         if obj == 0:
             return self
         assert isinstance(obj, self.__class__), '相加的两个Patch的类型不一致！'
