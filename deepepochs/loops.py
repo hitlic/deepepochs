@@ -4,12 +4,52 @@
 import os
 from os import path as osp
 import abc
-from copy import deepcopy
 from collections import defaultdict
 import torch
 from torch.optim import Adam
 import numpy as np
 from typing import List, Callable
+
+
+
+class ddict(dict):
+    """
+    可以通过“.”访问的字典。
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for arg in args:
+            if isinstance(arg, dict):
+                for k, v in arg.items():
+                    if isinstance(v, dict):
+                        self[k] = ddict(v)
+                    else:
+                        self[k] = v
+
+        if kwargs:
+            for k, v in kwargs.items():
+                if isinstance(v, dict):
+                    self[k] = ddict(v)
+                else:
+                    self[k] = v
+
+    def __getattr__(self, key):
+        value = self[key]
+        return value
+
+    def __setattr__(self, key, value):
+        self.__setitem__(key, value)
+
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        self.__dict__.update({key: value})
+
+    def __delattr__(self, item):
+        self.__delitem__(item)
+
+    def __delitem__(self, key):
+        super().__delitem__(key)
+        del self.__dict__[key]
 
 
 def flatten_dict(d, parent_key='', sep='.'):
@@ -58,8 +98,16 @@ def print_out(content, end='\r\n'):
     print(content, flush=True, end=end)
 
 
-def concat_dicts(dicts):
-    return {k: [to_numpy(d.get(k, 0)) for d in dicts] for k in keyset(dicts)}
+def concat_dicts(dicts, to_np=True):
+    if to_np:
+        return {k: [to_numpy(d.get(k, 0)) for d in dicts] for k in keyset(dicts)}
+    else:
+        return {k: [d.get(k, 0) for d in dicts] for k in keyset(dicts)}
+
+
+def sum_dicts(dicts, to_np=False):
+    dicts = concat_dicts(dicts, to_np)
+    return ddict({k: sum(v) for k, v in dicts.items()})
 
 
 def keyset(dicts):
@@ -167,17 +215,18 @@ class Checker:
 class PatchBase(abc.ABC):
     """
         所有Patch对象的基类。
-        Patch对象对一个mini-batch的模型输出数据和数据的处理方法进行了封装，用于方便地计算多个mini-batch或epoch
-    的累积结果。主要用于平均损失和累积计算（ValuePack）和指标的累积计算（TensorPack）。
-        TensorPack封装了指标函数、模型预测输出和标签，可能会占用较多存储空间。可以通过定义新的Patch类型实现更高效
-    的指标计算，例如基于混淆矩阵的指标等。
-        参见ValuePack和TensorPack代码和文档，以及trainer.Trainer的train_step方法和evaluate_step方法。
+        Patch对象对一个mini-batch的模型输出数据和数据的处理方法进行了封装，用于方便地计算多个mini-batch或epoch的
+    累积结果。主要用于平均损失和累积计算（ValuePatch）和指标的累积计算（TensorPatch）。
+        TensorPatch封装了指标函数、模型预测输出和标签，计算和空间效率较低，但能够用于计算任意指标。MeanPack封装了指
+    标函数、当前batch的指标值和batch_size，计算和存储效率较高，但不能用于无法进行简单累积求均值的指标（基于混淆矩阵的
+    指标）。可以通过定义新的Patch类型实现更复杂的指标计算。
+        参见ValuePatch、TensorPatch、MeanPatch类，以及trainer.Trainer的train_step方法和evaluate_step方法。
     """
     def __add__(self, obj):
-        return self.add(obj)
+        return self.__add(obj)
 
     def __radd__(self, obj):
-        return self.add(obj)
+        return self.__add(obj)
 
     def __call__(self):
         return self.forward()
@@ -188,16 +237,18 @@ class PatchBase(abc.ABC):
         基于当前Patch中保存的数据，计算一个结果（如指标值）并返回，被__call__方法自动调用。
         """
 
+    def __add(self, obj):
+        if obj == 0:
+            return self
+        assert isinstance(obj, self.__class__), '相加的两个Patch的类型不一致！'
+        return self.add(obj)
+
     @abc.abstractmethod
     def add(self, obj):
         """
         用于重载“+”运算符，将self和obj两个对象相加，得到一个新的对象。
-        注意1：如果obj为0则返回self
-        注意2：在相加之前检查self和obj是否能够相加
+        注意：在相加之前检查self和obj是否能够相加
         """
-        if obj == 0:
-            return self
-        return None
 
 
 class ValuePatch(PatchBase):
@@ -233,26 +284,26 @@ class ValuePatch(PatchBase):
             return self.batch_value / self.batch_size
 
     def add(self, obj):
-        if obj == 0:
-            return self
-        assert isinstance(obj, self.__class__), '相加的两个Patch的类型不一致！'
-        new_obj = deepcopy(self)
-        if isinstance(self.batch_value, dict):
-            assert isinstance(obj.batch_value, dict) and len(self.batch_value) == len(obj.batch_value), '相加的两个Patch值不匹配！'
-            keys = self.batch_value.keys()
-            keys_ = obj.batch_value.keys()
-            assert len(set(keys).difference(set(keys_))) == 0, '相加的两个Patch值（字典）的key不一致！'
-            new_obj.batch_value = {k: new_obj.batch_value[k]+obj.batch_value[k] for k in keys}
-        else:
-            new_obj.batch_value += obj.batch_value
-        new_obj.batch_size += obj.batch_size
-        return new_obj
+        return add_patch_value(self, obj)
+
+
+def add_patch_value(self_obj, obj):
+    if isinstance(self_obj.batch_value, dict):
+        assert isinstance(obj.batch_value, dict) and len(self_obj.batch_value) == len(obj.batch_value), '相加的两个Patch值不匹配！'
+        keys = self_obj.batch_value.keys()
+        keys_ = obj.batch_value.keys()
+        assert len(set(keys).difference(set(keys_))) == 0, '相加的两个Patch值（字典）的key不一致！'
+        self_obj.batch_value = {k: self_obj.batch_value[k]+obj.batch_value[k] for k in keys}
+    else:
+        self_obj.batch_value += obj.batch_value
+    self_obj.batch_size += obj.batch_size
+    return self_obj
 
 
 class TensorPatch(PatchBase):
     def __init__(self, metric, batch_preds, batch_targets=None):
         """
-        用于类积多个mini-batch的preds和targets，计算Epoch的指标。
+        用于累积多个mini-batch的preds和targets，计算Epoch的指标。
         例如：
             batch 1的模型预测为preds1, 标签为targets1；
             batch 1的模型预测为preds2, 标签为targets2；
@@ -287,9 +338,6 @@ class TensorPatch(PatchBase):
         return self.metric(preds, targets)
 
     def add(self, obj):
-        if obj == 0:
-            return self
-        assert isinstance(obj, self.__class__), '相加的两个Patch的类型不一致！'
         assert self.metric is obj.metric, '相加的两个Patch的`metric`不一致'
         new_preds = self.batch_preds + obj.batch_preds
         if self.batch_targets != None:
@@ -298,6 +346,37 @@ class TensorPatch(PatchBase):
         else:
             new_targets = None
         return self.__class__(self.metric, new_preds, new_targets)
+
+
+class MeanPatch(PatchBase):
+    def __init__(self, metric, batch_preds, batch_targets=None):
+        """
+        用于累积多个mini-batch的指标值，计算Epoch的指标。
+        Args:
+            metric: 计算指标的函数（或其他适当的可调用对象），必须返回经过平均指标值。
+            batch_pres: 一个mini_batch的模型预测
+            batch_targets: 一个mini_batch的标签（当指标计算不需要标签时为空值）
+        """
+        super().__init__()
+        assert callable(metric), '指标`metric`应当是一个可调用对象！'
+        self.metric = metric
+        self.batch_size = len(batch_preds)
+        m_value = metric(batch_preds, batch_targets)
+        if isinstance(m_value, dict):
+            self.batch_value = {k: v * self.batch_size for k, v in m_value.items()}
+        else:
+            self.batch_value = m_value * self.batch_size
+
+    def forward(self):
+        if isinstance(self.batch_value, dict):
+            return {k: v / self.batch_size for k, v in self.batch_value.items()}
+        else:
+            return self.batch_value / self.batch_size
+
+    def add(self, obj):
+        assert self.metric is obj.metric, '相加的两个Patch的`metric`不一致'
+        return add_patch_value(self, obj)
+
 
 
 def exec_dict(patch_dict):
@@ -370,11 +449,11 @@ class TrainerBase:
                 batchs = len(train_dl)
 
                 for batch_idx, (batch_x, batch_y) in enumerate(train_dl):
-                    train_ms = self.train_step(batch_x.to(self.device), batch_y.to(self.device))
-                    train_metrics.append(train_ms)
+                    train_m = self.train_step(batch_x.to(self.device), batch_y.to(self.device))
+                    train_metrics.append(train_m)
                     with torch.no_grad():
                         # 计算当前batch的指标并输出
-                        log_batch(flatten_dict(exec_dict(train_ms), sep=''), epoch_idx+1, self.epochs, batch_idx+1, batchs, 'TRAIN')
+                        log_batch(flatten_dict(exec_dict(train_m), sep=''), epoch_idx+1, self.epochs, batch_idx+1, batchs, 'TRAIN')
                 with torch.no_grad():
                     # 计算当前epoch的指标
                     train_metrics = flatten_dict(exec_dicts(train_metrics), sep='')
@@ -387,10 +466,10 @@ class TrainerBase:
                     batchs = len(val_dl)
                     with torch.no_grad():
                         for batch_idx, (batch_x, batch_y) in enumerate(val_dl):
-                            val_ms = self.evaluate_step(batch_x.to(self.device), batch_y.to(self.device))
-                            val_metrics.append(val_ms)
+                            val_m = self.evaluate_step(batch_x.to(self.device), batch_y.to(self.device))
+                            val_metrics.append(val_m)
                             # 计算当前batch的指标并输出
-                            log_batch(flatten_dict(exec_dict(val_ms), sep=''), epoch_idx+1, self.epochs, batch_idx+1, batchs, 'VAL')
+                            log_batch(flatten_dict(exec_dict(val_m), sep=''), epoch_idx+1, self.epochs, batch_idx+1, batchs, 'VAL')
                         # 计算当前epoch的指标
                         val_metrics = flatten_dict(exec_dicts(val_metrics), sep='')
                         progress['val'].append(val_metrics)
@@ -419,10 +498,10 @@ class TrainerBase:
         batchs = len(test_dl)
         with torch.no_grad():
             for batch_idx, (batch_x, batch_y) in enumerate(test_dl):
-                test_ms = self.evaluate_step(batch_x.to(self.device), batch_y.to(self.device))
-                test_metrics.append(test_ms)
+                test_m = self.evaluate_step(batch_x.to(self.device), batch_y.to(self.device))
+                test_metrics.append(test_m)
                 # 计算当前batch的指标并输出
-                log_batch(flatten_dict(exec_dict(test_ms), sep=''), 1, 1, batch_idx+1, batchs, 'TEST')
+                log_batch(flatten_dict(exec_dict(test_m), sep=''), 1, 1, batch_idx+1, batchs, 'TEST')
             # 计算当前epoch的指标
             test_metrics = flatten_dict(exec_dicts(test_metrics), sep='')
         log_epoch({'test': test_metrics}, 1, 1)

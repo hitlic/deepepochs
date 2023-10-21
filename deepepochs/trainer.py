@@ -1,4 +1,5 @@
-from .loops import TrainerBase, ValuePatch, TensorPatch, Checker  # pylint: disable=W0611
+from .loops import TrainerBase, ValuePatch, TensorPatch, MeanPatch, Checker  # pylint: disable=W0611
+from .metrics import ConfusionPatch  # pylint: disable=W0611
 
 
 class Trainer(TrainerBase):

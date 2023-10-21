@@ -7,6 +7,11 @@ from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
 from torchmetrics import functional as MF
 
+import random
+import numpy as np
+torch.manual_seed(1)
+np.random.seed(1)
+random.seed(1)
 
 # datasets
 data_dir = './dataset'
@@ -38,12 +43,13 @@ def acc(preds, targets):
 
 @rename('m')
 def multi_metrics(preds, targets):
-    r =  MF.recall(preds, targets, task='multiclass', num_classes=10)
-    f1 = MF.f1_score(preds, targets, task='multiclass', num_classes=10)
-    return {'@r': r, '@f1': f1}
+    return {
+        '.p': MF.precision(preds, targets, task='multiclass', num_classes=10),
+        '.r': MF.recall(preds, targets, task='multiclass', num_classes=10)
+        }
 
 
-checker = Checker('loss', mode='max', patience=2)
+checker = Checker('loss', mode='min', patience=2)
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=100, checker=checker, metrics=[acc, multi_metrics])
 
