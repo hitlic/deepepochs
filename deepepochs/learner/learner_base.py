@@ -70,7 +70,7 @@ class LearnerBase:
                 for batch_idx, batch_data in enumerate(train_dl):
                     batch_x, batch_y = self.prepare_data(batch_data)
                     self.callbacks.trigger('before_train_batch', learner=self, batch_x=batch_x, batch_y=batch_y, batch_idx=batch_idx)
-                    train_ms = self.train_step(batch_x.to(self.device), batch_y if getattr(batch_y, 'to', None) is None else batch_y.to(self.device))
+                    train_ms = self.train_step(batch_x, batch_y)
                     train_metrics.append(train_ms)
                     with torch.no_grad():
                         # 计算batch指标
@@ -91,7 +91,7 @@ class LearnerBase:
                         for batch_idx, batch_data in enumerate(val_dl):
                             batch_x, batch_y = self.prepare_data(batch_data)
                             self.callbacks.trigger('before_val_batch', learner=self, batch_x=batch_x, batch_y=batch_y, batch_idx=batch_idx)
-                            val_ms = self.evaluate_step(batch_x.to(self.device), batch_y if getattr(batch_y, 'to', None) is None else batch_y.to(self.device))
+                            val_ms = self.evaluate_step(batch_x, batch_y)
                             val_metrics.append(val_ms)
                             # 计算batch指标
                             val_batch_metrics = flatten_dict(run_patch_dict(val_ms), sep='')
@@ -110,11 +110,8 @@ class LearnerBase:
         return {k: concat_dicts(v) for k, v in progress.items()}
 
     def prepare_data(self, batch_data):
-        batch_x, batch_y = batch_data[:-1], batch_data[-1]
-        batch_x = TensorTuple(batch_x)
-        if isinstance(batch_y, (list, tuple)):
-            batch_y = TensorTuple(batch_y)
-        return batch_x, batch_y
+        batch_x, batch_y = TensorTuple(batch_data[:-1]).to(self.device), TensorTuple(batch_data[-1:]).to(self.device)
+        return batch_x, batch_y[0] if len(batch_y)==1 else batch_y
 
     def test(self, test_dl):
         print('-'*30)
@@ -127,7 +124,7 @@ class LearnerBase:
             for batch_idx, batch_data in enumerate(test_dl):
                 batch_x, batch_y = self.prepare_data(batch_data)
                 self.callbacks.trigger('before_test_batch', learner=self, batch_x=batch_x, batch_y=batch_y, batch_idx=batch_idx)
-                test_m = self.evaluate_step(batch_x.to(self.device), batch_y if getattr(batch_y, 'to', None) is None else batch_y.to(self.device))
+                test_m = self.evaluate_step(batch_x, batch_y)
                 test_metrics.append(test_m)
                 # 计算当前batch的指标
                 test_batch_metrics = flatten_dict(run_patch_dict(test_m), sep='')
