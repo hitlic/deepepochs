@@ -1,6 +1,3 @@
-"""
-trainer.py仅依赖loops.py，可直接将两个文件复制至新的训练项目，使用标准的Trainer训练模型
-"""
 from ..loops import ValuePatch, TensorPatch, MeanPatch, ConfusionPatch, Checker  # pylint: disable=W0611
 
 from .learner_base import LearnerBase
