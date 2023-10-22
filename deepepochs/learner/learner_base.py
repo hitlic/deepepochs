@@ -22,7 +22,6 @@ class LearnerBase:
             metrics:    指标
             device:     cpu或cuda
             val_freq:   验证频率
-            checker:    Checker类的对象，实现了checkpoint和early stopping
             callbacks:  Callback实体列表
         """
         # 配置损失函数
