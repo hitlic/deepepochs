@@ -7,6 +7,7 @@ from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
 from torchmetrics import functional as MF
 
+
 # datasets
 data_dir = './dataset'
 transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
