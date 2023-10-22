@@ -2,7 +2,25 @@
 
 Pytorch深度学习模型训练工具。
 
+### 安装
+
+```bash
+pip install deepepochs
+```
+
 ### 使用
+
+#### 数据要求
+
+- 训练集、验证集和测试集是`torch.utils.data.Dataloader`对象
+- `Dataloaer`中每个mini-batch数据是一个`tuple`或`list`，其中最后一个是标签
+  - 如果数据不包含标签，则请将最后一项置为`None`
+
+#### 指标计算
+
+- 每个指标是一个函数
+  - 它有两个参数，分别为模型的预测结果和标签
+  - 返回值为当前mini-batch上的指标值
 
 #### 常规训练流程
 

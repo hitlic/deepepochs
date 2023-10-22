@@ -12,7 +12,7 @@ class Trainer(TrainerBase):
         注意：本方法返回一个字典，键为指标名，值为封装了数据和指标函数的PatchBase子类对象。
         """
         self.opt.zero_grad()
-        model_out = self.model(batch_x)
+        model_out = self.model(*batch_x)
         loss = self.loss(model_out, batch_y)
         loss.backward()
         self.opt.step()
@@ -28,7 +28,7 @@ class Trainer(TrainerBase):
         TODO: 非常规验证或测试可修改本方法中的代码。
         注意：本方法返回一个字典，键为指标名，值为封装了数据和指标函数的PatchBase子类对象。
         """
-        model_out = self.model(batch_x)
+        model_out = self.model(*batch_x)
         loss = self.loss(model_out, batch_y)
 
         results = {'loss': ValuePatch(loss.detach(), len(model_out))}

@@ -67,10 +67,10 @@ class LearnerBase:
                 # training
                 self.model.train()
                 train_metrics = []
-                for batch_idx, (batch_x, batch_y) in enumerate(train_dl):
-                    batch_x, batch_y = self.prepare_data(batch_x, batch_y)
+                for batch_idx, batch_data in enumerate(train_dl):
+                    batch_x, batch_y = self.prepare_data(batch_data)
                     self.callbacks.trigger('before_train_batch', learner=self, batch_x=batch_x, batch_y=batch_y, batch_idx=batch_idx)
-                    train_ms = self.train_step(batch_x.to(self.device), batch_y.to(self.device))
+                    train_ms = self.train_step(batch_x.to(self.device), None if batch_y is None else batch_y.to(self.device))
                     train_metrics.append(train_ms)
                     with torch.no_grad():
                         # 计算batch指标
@@ -88,10 +88,10 @@ class LearnerBase:
                     val_metrics = []
                     self.callbacks.trigger('before_val_epoch', learner=self)
                     with torch.no_grad():
-                        for batch_idx, (batch_x, batch_y) in enumerate(val_dl):
-                            batch_x, batch_y = self.prepare_data(batch_x, batch_y)
+                        for batch_idx, batch_data in enumerate(val_dl):
+                            batch_x, batch_y = self.prepare_data(batch_data)
                             self.callbacks.trigger('before_val_batch', learner=self, batch_x=batch_x, batch_y=batch_y, batch_idx=batch_idx)
-                            val_ms = self.evaluate_step(batch_x.to(self.device), batch_y.to(self.device))
+                            val_ms = self.evaluate_step(batch_x.to(self.device), None if batch_y is None else batch_y.to(self.device))
                             val_metrics.append(val_ms)
                             # 计算batch指标
                             val_batch_metrics = flatten_dict(run_patch_dict(val_ms), sep='')
@@ -109,9 +109,9 @@ class LearnerBase:
         self.callbacks.trigger('after_fit', learner=self)
         return {k: concat_dicts(v) for k, v in progress.items()}
 
-    def prepare_data(self, batch_x, batch_y):
-        if isinstance(batch_x, (list, tuple)):
-            batch_x = TensorTuple(batch_x)
+    def prepare_data(self, batch_data):
+        batch_x, batch_y = batch_data[:-1], batch_data[-1]
+        batch_x = TensorTuple(batch_x)
         if isinstance(batch_y, (list, tuple)):
             batch_y = TensorTuple(batch_y)
         return batch_x, batch_y
@@ -124,10 +124,10 @@ class LearnerBase:
         batchs = len(test_dl)
         self.callbacks.trigger('before_test_epoch', learner=self, total_batchs=batchs)
         with torch.no_grad():
-            for batch_idx, (batch_x, batch_y) in enumerate(test_dl):
-                batch_x, batch_y = self.prepare_data(batch_x, batch_y)
+            for batch_idx, batch_data in enumerate(test_dl):
+                batch_x, batch_y = self.prepare_data(batch_data)
                 self.callbacks.trigger('before_test_batch', learner=self, batch_x=batch_x, batch_y=batch_y, batch_idx=batch_idx)
-                test_m = self.evaluate_step(batch_x.to(self.device), batch_y.to(self.device))
+                test_m = self.evaluate_step(batch_x.to(self.device), None if batch_y is None else batch_y.to(self.device))
                 test_metrics.append(test_m)
                 # 计算当前batch的指标
                 test_batch_metrics = flatten_dict(run_patch_dict(test_m), sep='')
