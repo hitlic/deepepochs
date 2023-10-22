@@ -1,5 +1,7 @@
 """
-本模块代码尽量不要变动。
+DeepEpochs is a simple Pytorch deep learning model training tool(see https://github.com/hitlic/deepepochs).
+loops.py is the core file. It does not depend on other files, so it can be copied directly to a new training
+project and used to customize a new Trainer.
 """
 import os
 from os import path as osp
@@ -8,8 +10,7 @@ from collections import defaultdict
 import torch
 from torch.optim import Adam
 import numpy as np
-from typing import List, Callable
-
+from typing import List, Callable, Literal
 
 
 class ddict(dict):
@@ -25,7 +26,6 @@ class ddict(dict):
                         self[k] = ddict(v)
                     else:
                         self[k] = v
-
         if kwargs:
             for k, v in kwargs.items():
                 if isinstance(v, dict):
@@ -162,7 +162,7 @@ def check_path(path, create=True):
 class Checker:
     def __init__(self, monitor, mode='max', patience=None, path='./logs/checkpoint'):
         """
-        实现了checkpoint和earlystop。
+        实现了checkpoint和early stopping。
         Args:
             monitor: metric name in validation stage
             mode: max or min
@@ -222,6 +222,14 @@ class PatchBase(abc.ABC):
     指标）。可以通过定义新的Patch类型实现更复杂的指标计算。
         参见ValuePatch、TensorPatch、MeanPatch类，以及trainer.Trainer的train_step方法和evaluate_step方法。
     """
+    def __init__(self, name=None):
+        """
+        Args:
+            name: 显示在输出日志中的名称
+        """
+        super().__init__()
+        self.name = name
+
     def __add__(self, obj):
         return self.__add(obj)
 
@@ -252,7 +260,7 @@ class PatchBase(abc.ABC):
 
 
 class ValuePatch(PatchBase):
-    def __init__(self, batch_mean_value, batch_size):
+    def __init__(self, batch_mean_value, batch_size, name=None):
         """
         主要用于根据mini-batch平均损失得到epoch平均损失（也可用于与损失相似的数值的累积平均计算），支持字典值的累积平均计算。
         例如：
@@ -269,8 +277,9 @@ class ValuePatch(PatchBase):
         Args:
             batch_mean_value: 一个mini-batch的平均值，例如平均损失；或者多个mini-batch平均值组成的字典。
             batch_size: mini-batch的大小
+            name: 显示在输出日志中的名称
         """
-        super().__init__()
+        super().__init__(name)
         if isinstance(batch_mean_value, dict):
             self.batch_value = {k: v * batch_size for k, v in batch_mean_value.items()}
         else:
@@ -301,7 +310,7 @@ def add_patch_value(self_obj, obj):
 
 
 class TensorPatch(PatchBase):
-    def __init__(self, metric, batch_preds, batch_targets=None):
+    def __init__(self, metric, batch_preds, batch_targets=None, name=None):
         """
         用于累积多个mini-batch的preds和targets，计算Epoch的指标。
         例如：
@@ -320,8 +329,9 @@ class TensorPatch(PatchBase):
             metric: 计算指标的函数（或其他适当的可调用对象）
             batch_pres: 一个mini_batch的模型预测
             batch_targets: 一个mini_batch的标签（当指标计算不需要标签时为空值）
+            name: 显示在输出日志中的名称
         """
-        super().__init__()
+        super().__init__(name)
         assert callable(metric), '指标`metric`应当是一个可调用对象！'
         self.metric = metric
         self.batch_preds = list(batch_preds) if isinstance(batch_preds, (list, tuple)) else [batch_preds]
@@ -345,19 +355,20 @@ class TensorPatch(PatchBase):
             new_targets = self.batch_targets + obj.batch_targets
         else:
             new_targets = None
-        return self.__class__(self.metric, new_preds, new_targets)
+        return self.__class__(self.metric, new_preds, new_targets, self.name)
 
 
 class MeanPatch(PatchBase):
-    def __init__(self, metric, batch_preds, batch_targets=None):
+    def __init__(self, metric, batch_preds, batch_targets=None, name=None):
         """
         用于累积多个mini-batch的指标值，计算Epoch的指标。
         Args:
             metric: 计算指标的函数（或其他适当的可调用对象），必须返回经过平均指标值。
             batch_pres: 一个mini_batch的模型预测
             batch_targets: 一个mini_batch的标签（当指标计算不需要标签时为空值）
+            name: 显示在输出日志中的名称
         """
-        super().__init__()
+        super().__init__(name)
         assert callable(metric), '指标`metric`应当是一个可调用对象！'
         self.metric = metric
         self.batch_size = len(batch_preds)
@@ -378,12 +389,142 @@ class MeanPatch(PatchBase):
         return add_patch_value(self, obj)
 
 
+class ConfusionPatch(PatchBase):
+    def __init__(self, batch_preds, batch_targets,
+                 metrics=('accuracy', 'precision', 'recall', 'f1', 'fbeta'),
+                 average: Literal['micro', 'macro', 'weighted']='micro', beta=1.0, name='C.'):
+        """
+        能够累积计算基于混淆矩阵的指标，包括'accuracy', 'precision', 'recall', 'f1', 'fbeta'等。
+        Args:
+            batch_preds:    模型预测
+            batch_targets:  标签
+            metrics:        需计算的标签，'accuracy', 'precision', 'recall', 'f1', 'fbeta'中的一个或多个
+            average:        多分类下的平均方式'micro', 'macro', 'weighted'之一
+            beta:           F_beta中的beta
+            name:           显示在输出日志中的名称
+        """
+        super().__init__(name)
+        if isinstance(metrics, str):
+            metrics = [metrics]
+
+        assert set(metrics) <= set(['accuracy', 'precision', 'recall', 'f1', 'fbeta']),\
+                "未知`metrics`！可取值为{'accuracy', 'precision', 'recall', 'f1', 'fbeta'}的子集！"
+        assert average in ['micro', 'macro', 'weighted'], "`average`取值为['micro', 'macro', 'weighted']之一！"
+        self.metric2name = {'accuracy': 'acc', 'recall': 'r', 'precision': 'p', 'f1': 'f1', 'fbeta': 'fb'}
+
+        if 'fbeta' in metrics:
+            assert beta > 0, 'F_beta中的beta必须大于0！'
+            self.beta = beta
+
+        self.metrics = metrics
+        self.average = average
+
+        if batch_preds.shape[1] == 1:
+            num_classes = None
+        else:
+            num_classes = batch_preds.shape[1]
+        self.num_classes = num_classes
+        self.confusion_matrix = self._confusion_matrix(batch_preds, batch_targets)
+
+    def _confusion_matrix(self, preds, targets):
+        preds = preds.argmax(dim=1)
+        cm = torch.zeros([self.num_classes, self.num_classes], dtype=preds.dtype, device=preds.device)
+        one = torch.tensor([1], dtype=preds.dtype, device=preds.device)
+        return cm.index_put_((preds, targets), one, accumulate=True)
+
+
+    def forward(self):
+        c_mats = self.get_c_mats()
+        weights = [mat.TP+mat.FN for mat in c_mats]
+        w_sum = sum(weights)
+        weights = [w/w_sum for w in weights]
+        return {self.metric2name[m]: getattr(self, m)(c_mats, weights) for m in self.metrics}
+
+    def add(self, obj):
+        assert self.confusion_matrix.shape == obj.confusion_matrix.shape, '相加的两个Patch中数据的类别数量不相等！'
+        assert set(self.metrics) == set(obj.metrics), '相加的两个Patch的`metrics`不一致!'
+        assert self.average == obj.average, '相加的两个Patch的`average`不一致!'
+        self.confusion_matrix += obj.confusion_matrix
+        return self
+
+    def get_c_mats(self):
+        if self.confusion_matrix.shape[0] == 2:
+            c_mat = ddict({
+                'TP': self.confusion_matrix[0][0],
+                'FN': self.confusion_matrix[0][1],
+                'FP': self.confusion_matrix[1][0],
+                'TN': self.confusion_matrix[1][1]
+            })
+            return [c_mat]
+        else:
+            return [ddict(self.get_cmat_i(i)) for i in range(self.confusion_matrix.shape[0])]
+
+    def get_cmat_i(self, c_id):
+        TP = self.confusion_matrix[c_id, c_id]
+        FN = self.confusion_matrix[c_id].sum() - TP
+        FP = self.confusion_matrix[:, c_id].sum() - TP
+        TN = self.confusion_matrix.sum() - TP - FN - FP
+        return ddict({'TP': TP, 'FN': FN, 'FP': FP, 'TN': TN})
+
+    def accuracy(self, _1, _2):
+        return sum(self.confusion_matrix[i, i] for i in range(self.num_classes))/self.confusion_matrix.sum()
+
+    def precision(self, c_mats, weights):
+        if self.average == 'micro':
+            return precision_fn(sum_dicts(c_mats))
+        elif self.average == 'macro':
+            return sum(precision_fn(mat) for mat in c_mats)/self.num_classes
+        else:
+            ps = [precision_fn(mat) for mat in c_mats]
+            return sum(p*w for p, w in zip(ps, weights))
+
+    def recall(self, c_mats, weights):
+        if self.average == 'micro':
+            return recall_fn(sum_dicts(c_mats))
+        elif self.average == 'macro':
+            return sum(recall_fn(mat) for mat in c_mats)/self.num_classes
+        else:
+            ps = [recall_fn(mat) for mat in c_mats]
+            return sum(p*w for p, w in zip(ps, weights))
+
+    def fbeta(self, c_mats, weights):
+        return self._fbeta(c_mats, weights, self.beta)
+
+    def _fbeta(self, c_mats, weights, beta):
+        if self.average == 'micro':
+            return fbeta_fn(sum_dicts(c_mats), beta)
+        elif self.average == 'macro':
+            return sum(fbeta_fn(mat, beta) for mat in c_mats)/self.num_classes
+        else:
+            ps = [fbeta_fn(mat, beta) for mat in c_mats]
+            return sum(p*w for p, w in zip(ps, weights))
+
+    def f1(self, c_mats, weights):
+        return self._fbeta(c_mats, weights, 1)
+
+def precision_fn(c_mat):
+    if c_mat.TP + c_mat.FP == 0:
+        return 0
+    return c_mat.TP/(c_mat.TP + c_mat.FP)
+
+def recall_fn(c_mat):
+    if c_mat.TP + c_mat.FP == 0:
+        return 0
+    return c_mat.TP/(c_mat.TP + c_mat.FN)
+
+def fbeta_fn(c_mat, beta):
+    p = precision_fn(c_mat)
+    r = recall_fn(c_mat)
+    if p + r == 0:
+        return 0
+    return (1 + beta**2) * (p*r)/(beta**2 * p + r)
+
 
 def exec_dict(patch_dict):
     """
     计算一个Patch字典的指标值（计算Batch指标）
     """
-    return {k: v() for k, v in patch_dict.items()}
+    return {patch_name(k, v): v() for k, v in patch_dict.items()}
 
 
 def exec_dicts(patch_dicts):
@@ -392,7 +533,15 @@ def exec_dicts(patch_dicts):
     """
     if len(patch_dicts) == 0:
         return None
-    return {k: sum(dic[k] for dic in patch_dicts)() for k in keyset(patch_dicts)}
+    return {patch_name(k, patch_dicts[0][k]): sum(dic[k] for dic in patch_dicts)() for k in keyset(patch_dicts)}
+
+
+def patch_name(k, patch):
+    name = getattr(patch, 'name', None)
+    if name is None:
+        return k
+    else:
+        return name
 
 
 def default_loss(preds, targets):
@@ -510,13 +659,13 @@ class TrainerBase:
     def train_step(self, batch_x, batch_y):
         """
         TODO: 非常规训练可修改本方法中的代码。
-        注意：本方法返回一个字典，键为指标名，值为封装了数据的ValuePatch或者Patch。
+        注意：本方法返回一个字典，键为指标名，值为封装了数据和指标函数的PatchBase子类对象。
         """
         raise NotImplementedError("Trainer.train_step 方法未实现！")
 
     def evaluate_step(self, batch_x, batch_y):
         """
         TODO: 非常规验证或测试可修改本方法中的代码。
-        注意：本方法返回一个字典，键为指标名，值为封装了数据的ValuePatch或者Patch。
+        注意：本方法返回一个字典，键为指标名，值为封装了数据和指标函数的PatchBase子类对象。
         """
         raise NotImplementedError("Trainer.evaluate_step 方法未实现！")

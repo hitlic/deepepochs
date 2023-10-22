@@ -7,12 +7,6 @@ from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
 from torchmetrics import functional as MF
 
-import random
-import numpy as np
-torch.manual_seed(1)
-np.random.seed(1)
-random.seed(1)
-
 # datasets
 data_dir = './dataset'
 transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
@@ -41,11 +35,11 @@ model = nn.Sequential(
 def acc(preds, targets):
     return MF.accuracy(preds, targets, task='multiclass', num_classes=10)
 
-@rename('m')
+@rename('')
 def multi_metrics(preds, targets):
     return {
-        '.p': MF.precision(preds, targets, task='multiclass', num_classes=10),
-        '.r': MF.recall(preds, targets, task='multiclass', num_classes=10)
+        'p': MF.precision(preds, targets, task='multiclass', num_classes=10),
+        'r': MF.recall(preds, targets, task='multiclass', num_classes=10)
         }
 
 

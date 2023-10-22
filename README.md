@@ -43,11 +43,11 @@ model = nn.Sequential(
 def acc(preds, targets):
     return MF.accuracy(preds, targets, task='multiclass', num_classes=10)
 
-@rename('m')
+@rename('')
 def multi_metrics(preds, targets):
     return {
-        '.p': MF.precision(preds, targets, task='multiclass', num_classes=10),
-        '.r': MF.recall(preds, targets, task='multiclass', num_classes=10)
+        'p': MF.precision(preds, targets, task='multiclass', num_classes=10),
+        'r': MF.recall(preds, targets, task='multiclass', num_classes=10)
         }
 
 
@@ -61,5 +61,10 @@ test_rst = trainer.test(test_dl)
 
 #### 非常规训练流程
 
-- 第1步：继承`deepepochs.TrainerBase`类，定制满足需要的`Trainer`，实现`train_step`方法和`evaluate_step`方法
-- 第2步：调用定制`Trainer`训练模型。
+- 方法1:
+    - 第1步：继承`deepepochs.TrainerBase`类，定制满足需要的`Trainer`，实现`train_step`方法和`evaluate_step`方法
+    - 第2步：调用定制`Trainer`训练模型。
+- 方法2:
+    - 第1步：继承`deepepochs.Callback`类，定制满足需要的Callback
+    - 第2步：使用`deepepochs.Learner`训练模型，将定制的Callback作为`Learner`的参数
+    - __提示__：`Learner`是具有`Callback`功能的`Trainer`
