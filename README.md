@@ -1,5 +1,6 @@
-# deepepochs
-Pytorch模型简易训练工具
+# DeepEpochs
+
+Pytorch深度学习模型训练工具。
 
 ### 使用
 
