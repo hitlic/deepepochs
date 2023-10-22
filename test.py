@@ -1,3 +1,6 @@
+"""
+@author: hitlic
+"""
 from deepepochs import Trainer, Checker, rename
 import torch
 from torch import nn

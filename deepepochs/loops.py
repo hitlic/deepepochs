@@ -1,4 +1,5 @@
 """
+@author: hitlic
 DeepEpochs is a simple Pytorch deep learning model training tool(see https://github.com/hitlic/deepepochs).
 loops.py is the core file. It does not depend on other files, so it can be copied directly to a new training
 project and used to customize a new Trainer.

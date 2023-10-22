@@ -1,3 +1,6 @@
+"""
+@author: hitlic
+"""
 from collections.abc import Iterable
 import time
 from ..loops import log_batch, log_epoch, check_path

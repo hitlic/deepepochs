@@ -1,5 +1,6 @@
 """
-trainer.py仅依赖loops.py，可直接将两个文件复制至新的训练项目，使用标准的Trainer训练模型
+@author: hitlic
+trainer.py仅依赖loops.py，可直接将两个文件复制至新的训练项目，使用这里的默认Trainer训练模型
 """
 from .loops import TrainerBase, ValuePatch, TensorPatch, MeanPatch, ConfusionPatch, Checker  # pylint: disable=W0611
 

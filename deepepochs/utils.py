@@ -1,3 +1,7 @@
+"""
+@author: hitlic
+一些有用的工具
+"""
 import math
 from collections import deque
 from itertools import chain

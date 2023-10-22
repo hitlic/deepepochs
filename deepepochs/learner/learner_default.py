@@ -1,3 +1,6 @@
+"""
+@author: hitlic
+"""
 from ..loops import ValuePatch, TensorPatch, MeanPatch, ConfusionPatch, Checker  # pylint: disable=W0611
 from .learner_base import LearnerBase
 

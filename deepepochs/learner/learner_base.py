@@ -1,4 +1,5 @@
 """
+@author: hitlic
 Learner是更完整的Trainer，具有Callback等更复杂的功能。
 """
 import torch
