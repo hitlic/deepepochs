@@ -1,6 +1,7 @@
 from ..loops import ValuePatch, TensorPatch, MeanPatch, ConfusionPatch, Checker  # pylint: disable=W0611
 from .learner_base import LearnerBase
 
+
 class Learner(LearnerBase):
     def train_step(self, batch_x, batch_y):
         """
