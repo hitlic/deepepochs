@@ -65,29 +65,29 @@ class TensorTuple(tuple):
             return torch.device(type='cpu')
 
     def to(self, device, **kwargs):
-        return TensorTuple(t.to(device, **kwargs) for t in self)
+        return TensorTuple(t.to(device, **kwargs) if isinstance(t, torch.Tensor) else t for t in self)
 
     def cpu(self):
-        return TensorTuple(t.cpu() for t in self)
+        return TensorTuple(t.cpu() if isinstance(t, torch.Tensor) else t for t in self)
 
     def clone(self):
-        return TensorTuple(t.clone() for t in self)
+        return TensorTuple(t.clone() if isinstance(t, torch.Tensor) else t for t in self)
 
     def detach(self):
-        return TensorTuple(t.detach() for t in self)
+        return TensorTuple(t.detach() if isinstance(t, torch.Tensor) else t for t in self)
 
     @property
     def data(self):
-        return TensorTuple(t.data for t in self)
+        return TensorTuple(t.data if isinstance(t, torch.Tensor) else t for t in self)
 
     def float(self):
-        return TensorTuple(t.float() for t in self)
+        return TensorTuple(t.float() if isinstance(t, torch.Tensor) else t for t in self)
 
     def long(self):
-        return TensorTuple(t.long() for t in self)
+        return TensorTuple(t.long() if isinstance(t, torch.Tensor) else t for t in self)
 
     def int(self):
-        return TensorTuple(t.int() for t in self)
+        return TensorTuple(t.int() if isinstance(t, torch.Tensor) else t for t in self)
 
 
 def flatten_dict(d, parent_key='', sep='.'):
@@ -637,7 +637,7 @@ class TrainerBase:
 
                 for batch_idx, batch_data in enumerate(train_dl):
                     batch_x, batch_y = self.prepare_data(batch_data)
-                    train_m = self.train_step(batch_x.to(self.device), None if batch_y is None else batch_y.to(self.device))
+                    train_m = self.train_step(batch_x.to(self.device), batch_y if getattr(batch_y, 'to', None) is None else batch_y.to(self.device))
                     train_metrics.append(train_m)
                     with torch.no_grad():
                         # 计算当前batch的指标并输出
@@ -655,7 +655,7 @@ class TrainerBase:
                     with torch.no_grad():
                         for batch_idx, batch_data in enumerate(val_dl):
                             batch_x, batch_y = self.prepare_data(batch_data)
-                            val_m = self.evaluate_step(batch_x.to(self.device), None if batch_y is None else batch_y.to(self.device))
+                            val_m = self.evaluate_step(batch_x.to(self.device), batch_y if getattr(batch_y, 'to', None) is None else batch_y.to(self.device))
                             val_metrics.append(val_m)
                             # 计算当前batch的指标并输出
                             log_batch(flatten_dict(run_patch_dict(val_m), sep=''), epoch_idx+1, self.epochs, batch_idx+1, batchs, 'VAL')
@@ -694,7 +694,7 @@ class TrainerBase:
         with torch.no_grad():
             for batch_idx, batch_data in enumerate(test_dl):
                 batch_x, batch_y = self.prepare_data(batch_data)
-                test_m = self.evaluate_step(batch_x.to(self.device), None if batch_y is None else batch_y.to(self.device))
+                test_m = self.evaluate_step(batch_x.to(self.device), batch_y if getattr(batch_y, 'to', None) is None else batch_y.to(self.device))
                 test_metrics.append(test_m)
                 # 计算当前batch的指标并输出
                 log_batch(flatten_dict(run_patch_dict(test_m), sep=''), 1, 1, batch_idx+1, batchs, 'TEST')
