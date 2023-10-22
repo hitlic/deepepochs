@@ -8,6 +8,7 @@ from itertools import chain
 import torch
 from matplotlib import pyplot as plt
 from queue import PriorityQueue
+from .loops import TensorTuple
 
 
 class SeriesPlots:
@@ -139,43 +140,6 @@ class TopKQueue(PriorityQueue):
 
     def items(self):
         return sorted(self.queue, key=lambda e: e[0], reverse=True)
-
-
-class TensorTuple(tuple):
-    """
-    list of tensors
-    """
-    @property
-    def device(self):
-        if len(self) > 0:
-            return self[0].device
-        else:
-            return torch.device(type='cpu')
-
-    def to(self, device, **kwargs):
-        return TensorTuple(t.to(device, **kwargs) for t in self)
-
-    def cpu(self):
-        return TensorTuple(t.cpu() for t in self)
-
-    def clone(self):
-        return TensorTuple(t.clone() for t in self)
-
-    def detach(self):
-        return TensorTuple(t.detach() for t in self)
-
-    @property
-    def data(self):
-        return TensorTuple(t.data for t in self)
-
-    def float(self):
-        return TensorTuple(t.float() for t in self)
-
-    def long(self):
-        return TensorTuple(t.long() for t in self)
-
-    def int(self):
-        return TensorTuple(t.int() for t in self)
 
 
 def batches(inputs, batch_size):

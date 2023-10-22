@@ -1,7 +1,7 @@
 """
 @author: hitlic
 """
-__version__ = '0.2.0'
+__version__ = '0.2.1'
 
 from .loops import *
 from .trainer import *

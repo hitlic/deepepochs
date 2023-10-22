@@ -53,6 +53,43 @@ class ddict(dict):
         del self.__dict__[key]
 
 
+class TensorTuple(tuple):
+    """
+    list of tensors
+    """
+    @property
+    def device(self):
+        if len(self) > 0:
+            return self[0].device
+        else:
+            return torch.device(type='cpu')
+
+    def to(self, device, **kwargs):
+        return TensorTuple(t.to(device, **kwargs) for t in self)
+
+    def cpu(self):
+        return TensorTuple(t.cpu() for t in self)
+
+    def clone(self):
+        return TensorTuple(t.clone() for t in self)
+
+    def detach(self):
+        return TensorTuple(t.detach() for t in self)
+
+    @property
+    def data(self):
+        return TensorTuple(t.data for t in self)
+
+    def float(self):
+        return TensorTuple(t.float() for t in self)
+
+    def long(self):
+        return TensorTuple(t.long() for t in self)
+
+    def int(self):
+        return TensorTuple(t.int() for t in self)
+
+
 def flatten_dict(d, parent_key='', sep='.'):
     """flatten a dict with dict as values"""
     items = []
@@ -521,14 +558,14 @@ def fbeta_fn(c_mat, beta):
     return (1 + beta**2) * (p*r)/(beta**2 * p + r)
 
 
-def exec_dict(patch_dict):
+def run_patch_dict(patch_dict):
     """
     计算一个Patch字典的指标值（计算Batch指标）
     """
     return {patch_name(k, v): v() for k, v in patch_dict.items()}
 
 
-def exec_dicts(patch_dicts):
+def run_patch_dicts(patch_dicts):
     """
     计算Patch字典的列表的指标值（计算Epoch指标）
     """
@@ -599,14 +636,15 @@ class TrainerBase:
                 batchs = len(train_dl)
 
                 for batch_idx, (batch_x, batch_y) in enumerate(train_dl):
+                    batch_x, batch_y = self.prepare_data(batch_x, batch_y)
                     train_m = self.train_step(batch_x.to(self.device), batch_y.to(self.device))
                     train_metrics.append(train_m)
                     with torch.no_grad():
                         # 计算当前batch的指标并输出
-                        log_batch(flatten_dict(exec_dict(train_m), sep=''), epoch_idx+1, self.epochs, batch_idx+1, batchs, 'TRAIN')
+                        log_batch(flatten_dict(run_patch_dict(train_m), sep=''), epoch_idx+1, self.epochs, batch_idx+1, batchs, 'TRAIN')
                 with torch.no_grad():
                     # 计算当前epoch的指标
-                    train_metrics = flatten_dict(exec_dicts(train_metrics), sep='')
+                    train_metrics = flatten_dict(run_patch_dicts(train_metrics), sep='')
                 progress['train'].append(train_metrics)
 
                 # validation
@@ -616,12 +654,13 @@ class TrainerBase:
                     batchs = len(val_dl)
                     with torch.no_grad():
                         for batch_idx, (batch_x, batch_y) in enumerate(val_dl):
+                            batch_x, batch_y = self.prepare_data(batch_x, batch_y)
                             val_m = self.evaluate_step(batch_x.to(self.device), batch_y.to(self.device))
                             val_metrics.append(val_m)
                             # 计算当前batch的指标并输出
-                            log_batch(flatten_dict(exec_dict(val_m), sep=''), epoch_idx+1, self.epochs, batch_idx+1, batchs, 'VAL')
+                            log_batch(flatten_dict(run_patch_dict(val_m), sep=''), epoch_idx+1, self.epochs, batch_idx+1, batchs, 'VAL')
                         # 计算当前epoch的指标
-                        val_metrics = flatten_dict(exec_dicts(val_metrics), sep='')
+                        val_metrics = flatten_dict(run_patch_dicts(val_metrics), sep='')
                         progress['val'].append(val_metrics)
                     # 输出当前epoch的训练和验证结果
                     log_epoch({'train': train_metrics, 'val': val_metrics}, epoch_idx+1, self.epochs)
@@ -636,6 +675,12 @@ class TrainerBase:
             print('\nStop trainning manually!')
         return {k: concat_dicts(v) for k, v in progress.items()}
 
+    def prepare_data(self, batch_x, batch_y):
+        if isinstance(batch_x, (list, tuple)):
+            batch_x = TensorTuple(batch_x)
+        if isinstance(batch_y, (list, tuple)):
+            batch_y = TensorTuple(batch_y)
+        return batch_x, batch_y
 
     def test(self, test_dl):
         print('-'*30)
@@ -648,12 +693,13 @@ class TrainerBase:
         batchs = len(test_dl)
         with torch.no_grad():
             for batch_idx, (batch_x, batch_y) in enumerate(test_dl):
+                batch_x, batch_y = self.prepare_data(batch_x, batch_y)
                 test_m = self.evaluate_step(batch_x.to(self.device), batch_y.to(self.device))
                 test_metrics.append(test_m)
                 # 计算当前batch的指标并输出
-                log_batch(flatten_dict(exec_dict(test_m), sep=''), 1, 1, batch_idx+1, batchs, 'TEST')
+                log_batch(flatten_dict(run_patch_dict(test_m), sep=''), 1, 1, batch_idx+1, batchs, 'TEST')
             # 计算当前epoch的指标
-            test_metrics = flatten_dict(exec_dicts(test_metrics), sep='')
+            test_metrics = flatten_dict(run_patch_dicts(test_metrics), sep='')
         log_epoch({'test': test_metrics}, 1, 1)
         return to_numpy(test_metrics)
 

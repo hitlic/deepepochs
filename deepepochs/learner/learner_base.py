@@ -68,16 +68,17 @@ class LearnerBase:
                 self.model.train()
                 train_metrics = []
                 for batch_idx, (batch_x, batch_y) in enumerate(train_dl):
+                    batch_x, batch_y = self.prepare_data(batch_x, batch_y)
                     self.callbacks.trigger('before_train_batch', learner=self, batch_x=batch_x, batch_y=batch_y, batch_idx=batch_idx)
                     train_ms = self.train_step(batch_x.to(self.device), batch_y.to(self.device))
                     train_metrics.append(train_ms)
                     with torch.no_grad():
                         # 计算batch指标
-                        train_batch_metrics = flatten_dict(exec_dict(train_ms), sep='')
+                        train_batch_metrics = flatten_dict(run_patch_dict(train_ms), sep='')
                     self.callbacks.trigger('after_train_batch', learner=self, metrics=train_batch_metrics, batch_idx=batch_idx)
                 with torch.no_grad():
                     # 计算epoch指标
-                    train_metrics = flatten_dict(exec_dicts(train_metrics), sep='')
+                    train_metrics = flatten_dict(run_patch_dicts(train_metrics), sep='')
                 progress['train'].append(train_metrics)
 
                 # validation
@@ -88,14 +89,15 @@ class LearnerBase:
                     self.callbacks.trigger('before_val_epoch', learner=self)
                     with torch.no_grad():
                         for batch_idx, (batch_x, batch_y) in enumerate(val_dl):
+                            batch_x, batch_y = self.prepare_data(batch_x, batch_y)
                             self.callbacks.trigger('before_val_batch', learner=self, batch_x=batch_x, batch_y=batch_y, batch_idx=batch_idx)
                             val_ms = self.evaluate_step(batch_x.to(self.device), batch_y.to(self.device))
                             val_metrics.append(val_ms)
                             # 计算batch指标
-                            val_batch_metrics = flatten_dict(exec_dict(val_ms), sep='')
+                            val_batch_metrics = flatten_dict(run_patch_dict(val_ms), sep='')
                             self.callbacks.trigger('after_val_batch', learner=self, metrics=val_batch_metrics, batch_idx=batch_idx)
                         # 计算epoch指标
-                        val_metrics = flatten_dict(exec_dicts(val_metrics), sep='')
+                        val_metrics = flatten_dict(run_patch_dicts(val_metrics), sep='')
                         progress['val'].append(val_metrics)
                     self.callbacks.trigger('after_val_epoch', learner=self, metrics=val_metrics)
                 self.callbacks.trigger('after_train_epoch', learner=self, train_metrics=train_metrics, val_metrics=val_metrics, epoch_idx=epoch_idx)
@@ -107,6 +109,12 @@ class LearnerBase:
         self.callbacks.trigger('after_fit', learner=self)
         return {k: concat_dicts(v) for k, v in progress.items()}
 
+    def prepare_data(self, batch_x, batch_y):
+        if isinstance(batch_x, (list, tuple)):
+            batch_x = TensorTuple(batch_x)
+        if isinstance(batch_y, (list, tuple)):
+            batch_y = TensorTuple(batch_y)
+        return batch_x, batch_y
 
     def test(self, test_dl):
         print('-'*30)
@@ -117,14 +125,15 @@ class LearnerBase:
         self.callbacks.trigger('before_test_epoch', learner=self, total_batchs=batchs)
         with torch.no_grad():
             for batch_idx, (batch_x, batch_y) in enumerate(test_dl):
+                batch_x, batch_y = self.prepare_data(batch_x, batch_y)
                 self.callbacks.trigger('before_test_batch', learner=self, batch_x=batch_x, batch_y=batch_y, batch_idx=batch_idx)
                 test_m = self.evaluate_step(batch_x.to(self.device), batch_y.to(self.device))
                 test_metrics.append(test_m)
                 # 计算当前batch的指标
-                test_batch_metrics = flatten_dict(exec_dict(test_m), sep='')
+                test_batch_metrics = flatten_dict(run_patch_dict(test_m), sep='')
                 self.callbacks.trigger('after_test_batch', learner=self, metrics=test_batch_metrics, batch_idx=batch_idx)
             # 计算当前epoch的指标
-            test_metrics = flatten_dict(exec_dicts(test_metrics), sep='')
+            test_metrics = flatten_dict(run_patch_dicts(test_metrics), sep='')
         self.callbacks.trigger('after_test_epoch', learner=self, metrics=test_metrics)
         return to_numpy(test_metrics)
 

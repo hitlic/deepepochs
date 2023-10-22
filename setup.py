@@ -10,10 +10,10 @@ setuptools.setup(
     author="hitlic",
     author_email="liuchen.lic@gmail.com",
     license='MIT',
-    description="",
+    description="An easy-to-use tool for training Pytorch deep learning models",
     long_description=long_description,
     long_description_content_type='text/markdown',
-    url="https://github.com/hitlic/loops",
+    url="https://github.com/hitlic/deepepochs",
     classifiers=[
         'Development Status :: 3 - Alpha',
         "Programming Language :: Python :: 3",
@@ -23,6 +23,7 @@ setuptools.setup(
     keywords='',
     packages=setuptools.find_packages(exclude=['__pycache__', '__pycache__/*']),
     py_modules=[],  # any single-file Python modules that aren’t part of a package
-    install_requires=['torch>=2.0', 'torchmetrics', 'numpy', 'matplotlib', 'scikit-learn', 'pandas'],
+    install_requires=['torch>=2.0', 'torchmetrics', 'numpy', 'matplotlib',
+                      'scikit-learn', 'pandas', 'torchvision', 'torchaudio', 'torchtext'],
     python_requires='>=3.8'
 )
