@@ -12,7 +12,7 @@ class Callback:
     执行流程：
         on_before_fit
             on_before_epoch
-                on_before_train_epochs
+                on_before_train_epochs   # 多个训练任务
                     on_before_train_epoch
                         on_before_train_batch
                             on_before_backward
@@ -22,7 +22,7 @@ class Callback:
                     on_after_train_epoch
                 ...
                 on_after_train_epochs
-                on_before_val_epochs
+                on_before_val_epochs     # 多个验证任务
                     on_before_val_epoch
                         on_before_val_batch
                         on_after_val_batch
@@ -31,6 +31,7 @@ class Callback:
                     ...
                 on_after_val_epochs
             on_after_epoch
+            ...
         on_after_fit
         on_before_test_epochs
             on_before_test_epoch
@@ -349,7 +350,7 @@ class CheckCallback(Callback):
 
     def check(self, metrics, model, opt):
         if self.monitor not in metrics:
-            raise LoopException(f'Checker要监控的{self.monitor}指标不存在！')
+            raise LoopException(f'CheckCallback: 要监控的{self.monitor}指标不存在！')
         value = metrics[self.monitor]
         if self.mode == 'max':
             if  value > self.best_value:

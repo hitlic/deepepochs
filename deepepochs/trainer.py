@@ -13,6 +13,12 @@ from torch.utils.data import DataLoader
 class EpochTask:
     """一个Epoch的训练、验证或测试任务"""
     def __init__(self, dataloader, metrics=None, do_loss=True):
+        """
+        Args:
+            dataloader: pytorch Dataloader
+            metrics: 指标函数列表
+            do_loss: 验证和测试中是否计算据损失
+        """
         self.dataloader = dataloader
         self.batchs = len(dataloader)
         self.metrics = metrics
@@ -42,7 +48,7 @@ class EpochTask:
                 self.callbacks.trigger(f'before_{self.stage}_batch', trainer=self.trainer, batch_x=batch_x, batch_y=batch_y, batch_idx=batch_idx)
 
                 # 获取mini-batch的`*step`方法
-                #    1. 最优先使用`EpochTask.step`和`Trainer.step`方法
+                #    1. 最优先使用`EpochTask.step`、`Trainer.step`
                 step_method = getattr(self, 'step', None)
                 #    2. 次优先使用`EpochTask.train_step`、`Epoch.val_step`、`EpochTask.test_step`
                 #    3. 其次使用`Trainer.train_step`、`Trainer.val_step`、`Trainer.test_step`
@@ -54,9 +60,9 @@ class EpochTask:
                 # 运行mini-batch的`*step`方法
                 if self.stage == 'train':
                     with torch.enable_grad():
-                        m_value = step_method(batch_x, batch_y, self.metrics, do_loss=True)
+                        m_value = step_method(batch_x, batch_y, metrics=self.metrics, do_loss=True)
                 else:
-                    m_value = step_method(batch_x, batch_y, self.metrics, do_loss=self.do_loss)
+                    m_value = step_method(batch_x, batch_y, metrics=self.metrics, do_loss=self.do_loss)
 
                 metrics_values.append(m_value)
 
@@ -247,13 +253,13 @@ class TrainerBase:
             test_tasks.insert(0, task)
         for task in test_tasks:
             task.trainer = self
-            task.stage = 'test'
 
         # 运行测试
         try:
             test_metric_values = {}
             self.callbacks.trigger('before_test_epochs', trainer=self, tasks=test_tasks)
             for task in test_tasks:
+                task.stage = 'test'
                 m_values = task()
                 test_metric_values.update(m_values)
             self.callbacks.trigger('after_test_epochs', trainer=self, tasks=test_tasks, metrics=test_metric_values)
@@ -263,14 +269,14 @@ class TrainerBase:
             print(e)
         return {}
 
-    def train_step(self, batch_x, batch_y, metrics, **kwargs) -> Dict[str, PatchBase]:
+    def train_step(self, batch_x, batch_y, **kwargs) -> Dict[str, PatchBase]:
         """
         TODO: 非常规训练可修改本方法中的代码。
         注意：本方法返回一个字典，键为指标名，值为封装了数据的ValuePatch或者Patch。
         """
         raise NotImplementedError("`Trainer.train_step`方法未实现！")
 
-    def evaluate_step(self,batch_x, batch_y, metrics, **kwargs) -> Dict[str, PatchBase]:
+    def evaluate_step(self,batch_x, batch_y, **kwargs) -> Dict[str, PatchBase]:
         """
         TODO: 非常规验证或测试可修改本方法中的代码。也可以定义val_step方法或test_step方法。
         注意：本方法返回一个字典，键为指标名，值为封装了数据的ValuePatch或者Patch。
@@ -279,7 +285,7 @@ class TrainerBase:
 
 
 class Trainer(TrainerBase):
-    def train_step(self, batch_x:[torch.Tensor, List[torch.Tensor]], batch_y:[torch.Tensor, List[torch.Tensor]], metrics:List[Callable], **kwargs) -> Dict[str, PatchBase]:
+    def train_step(self, batch_x:[torch.Tensor, List[torch.Tensor]], batch_y:[torch.Tensor, List[torch.Tensor]], **kwargs) -> Dict[str, PatchBase]:
         """
         TODO: 非常规训练可修改本方法中的代码。
         注意：本方法返回一个字典，键为指标名，值为封装了数据和指标函数的PatchBase子类对象。
@@ -293,11 +299,11 @@ class Trainer(TrainerBase):
         self.opt.step()
 
         results = {'loss': ValuePatch(loss.detach(), len(model_out))}
-        for m in metrics:
+        for m in kwargs.get('metrics', list()):
             results[m.__name__] = TensorPatch(m, model_out, batch_y)
         return results
 
-    def evaluate_step(self, batch_x:[torch.Tensor, List[torch.Tensor]], batch_y:[torch.Tensor, List[torch.Tensor]], metrics:List[Callable], **kwargs) -> Dict[str, PatchBase]:
+    def evaluate_step(self, batch_x:[torch.Tensor, List[torch.Tensor]], batch_y:[torch.Tensor, List[torch.Tensor]], **kwargs) -> Dict[str, PatchBase]:
         """
         TODO: 非常规验证或测试可修改本方法中的代码。
         注意：本方法返回一个字典，键为指标名，值为封装了数据和指标函数的PatchBase子类对象。
@@ -308,6 +314,6 @@ class Trainer(TrainerBase):
             results = {'loss': ValuePatch(loss.detach(), len(model_out))}
         else:
             results = {}
-        for m in metrics:
+        for m in kwargs.get('metrics', list()):
             results[m.__name__] = TensorPatch(m, model_out, batch_y)
         return results

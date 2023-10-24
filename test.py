@@ -6,7 +6,7 @@ Code Snips：
         from sys import _getframe
         print(_getframe().f_code.co_name)
 """
-from deepepochs import Trainer, CheckCallback, rename
+from deepepochs import Trainer, CheckCallback, rename, EpochTask
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -63,17 +63,17 @@ opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 
 trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=100, callbacks=checker, metrics=[acc])
 
-# 使用示例1：
+# 应用示例1：
 progress = trainer.fit(train_dl, val_dl, metrics=[multi_metrics], resume=True)
 test_rst = trainer.test(test_dl)
 
-# 使用示例2：
+# 应用示例2：
 # t1 = EpochTask(train_dl, metrics=[acc])
 # t2 = EpochTask(val_dl, metrics=[multi_metrics], do_loss=True)
 # progress = trainer.fit(train_tasks=t1, val_tasks=t2)
 # test_rst = trainer.test(tasks=t2)
 
-# 使用示例3：
+# 应用示例3：
 # t1 = EpochTask(train_dl, metrics=[acc])
 # t2 = EpochTask(val_dl, metrics=[acc, multi_metrics], do_loss=True)
 # progress = trainer.fit(train_dl, val_tasks=[t1, t2])
