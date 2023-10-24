@@ -114,4 +114,4 @@ test_rst = trainer.test(test_dl)
 
 #### 数据流程图
 
-<img src="imgs/data_flow.png" width="60%" alt="https://github.com/hitlic/deepepochs/imgs/data_flow.png"/>
+<img src="imgs/data_flow.png" width="60%" alt="https://github.com/hitlic/deepepochs/blob/main/imgs/data_flow.png"/>

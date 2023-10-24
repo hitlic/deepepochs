@@ -114,7 +114,7 @@ def log_epoch(stages_metrics, epoch_idx, epochs):
         val_info = ''
         if val_metrics is not None:
             val_info = info(val_metrics)
-            val_info = ' VAL> ' + val_info
+            val_info = '   VAL> ' + val_info
         print_out(f'E{epoch_idx:>4}/{epochs:<5} TRAIN> {train_info}{val_info}')
     elif test_metrics is not None:
         test_info = info(test_metrics)
