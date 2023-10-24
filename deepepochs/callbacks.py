@@ -5,7 +5,6 @@ from collections.abc import Iterable
 import time
 from .loops import log_batch, log_epoch, check_path, StopLoopException, LoopException, save_state, load_state
 from os import path as osp
-import torch
 
 
 class Callback:
