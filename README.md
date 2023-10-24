@@ -22,10 +22,10 @@ pip install deepepochs
   - 它有两个参数，分别为模型的预测结果和标签
   - 返回值为当前mini-batch上的指标值
 
-#### 常规训练流程
+#### 常规训练流程应用示例
 
 ```python
-from deepepochs import Trainer, Checker, rename
+from deepepochs import Trainer, CheckCallback, EpochTask, rename
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -70,20 +70,48 @@ def multi_metrics(preds, targets):
         }
 
 
-checker = Checker('loss', mode='min', patience=2)
+checker = CheckCallback('loss', on_stage='train', mode='min', patience=2)
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
-trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=100, checker=checker, metrics=[acc, multi_metrics])
 
-progress = trainer.fit(train_dl, val_dl)
+trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=100, callbacks=checker, metrics=[acc])
+
+# 应用示例1：
+progress = trainer.fit(train_dl, val_dl, metrics=[multi_metrics])
 test_rst = trainer.test(test_dl)
+
+# 应用示例2：
+# t1 = EpochTask(train_dl, metrics=[acc])
+# t2 = EpochTask(val_dl, metrics=[multi_metrics], do_loss=True)
+# progress = trainer.fit(train_tasks=t1, val_tasks=t2)
+# test_rst = trainer.test(tasks=t2)
+
+# 应用示例3：
+# t1 = EpochTask(train_dl, metrics=[acc])
+# t2 = EpochTask(val_dl, metrics=[acc, multi_metrics], do_loss=True)
+# progress = trainer.fit(train_dl, val_tasks=[t1, t2])
+# test_rst = trainer.test(tasks=[t1, t2])
 ```
 
 #### 非常规训练流程
 
 - 方法1:
-    - 第1步：继承`deepepochs.TrainerBase`类，定制满足需要的`Trainer`，实现`train_step`方法和`evaluate_step`方法
-    - 第2步：调用定制`Trainer`训练模型。
+    - 第1步：继承`deepepochs.Callback`类，定制满足需要的`Callback`
+    - 第2步：使用`deepepochs.Trainer`训练模型，将定制的`Callback`对象作为`Trainer`的`callbacks`参数
 - 方法2:
-    - 第1步：继承`deepepochs.Callback`类，定制满足需要的Callback
-    - 第2步：使用`deepepochs.Learner`训练模型，将定制的Callback作为`Learner`的参数
-    - __提示__：`Learner`是具有`Callback`功能的`Trainer`
+    - 第1步：继承`deepepochs.TrainerBase`类，定制满足需要的`Trainer`，实现`train_step`方法和`evaluate_step`方法
+        - 返回值为字典：key为指标名称，value为`DeepEpochs.PatchBase`子类对象，可用的Patch有
+            - `ValuePatch`：    根据每个batch指标均值（提前计算好）和batch_size，累积计算Epoch指标均值
+            - `TensorPatch`：   保存每个batch模型预测输出及标签，根据指定指标函数累积计算Epoch指标均值
+            - `MeanPatch`：     保存每个batch指标均值，根据指定指标函数累积计算Epoch指标均值
+            - `ConfusionPatch`：累积计算基于混淆矩阵的指标
+    - 第2步：调用定制`Trainer`训练模型。
+- 方法3:
+    - 第1步：继承`deepepochs.EpochTask`类，在其中定义`step`、`train_step`、`val_step`、`test_step`或者`evaluate_step`方法
+        - 参数分别为：`batch_x`, `batch_y`, `metrics`, `**kwargs`
+        - 返回值为字典：key为指标名称，value为`DeepEpochs.PatchBase`子类对象
+    - 第2步：使用将新的`EpochTask`任务进行训练。
+        - 将`EpochTask`对象作为`Trainer.fit`中`train_tasks`和`val_tasks`的参数值，或者`Trainer.test`方法中`tasks`的参数值
+
+#### 数据流程图
+
+<img src="imgs/data_flow.png" width="60%" alt="https://github.com/hitlic/deepepochs/imgs/data_flow.png"/>

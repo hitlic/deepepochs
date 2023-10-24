@@ -1,9 +1,9 @@
 """
 @author: hitlic
 """
-__version__ = '0.2.6'
+__version__ = '0.3.0'
 
 from .loops import *
 from .trainer import *
 from .utils import *
-from .learner import *
+from .callbacks import *

@@ -1,7 +1,12 @@
 """
 @author: hitlic
+
+Code Snips：
+    打印当前函数名：
+        from sys import _getframe
+        print(_getframe().f_code.co_name)
 """
-from deepepochs import Trainer, Checker, rename
+from deepepochs import Trainer, CheckCallback, rename
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -10,6 +15,11 @@ from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
 from torchmetrics import functional as MF
 
+import random
+import numpy as np
+torch.manual_seed(1)
+np.random.seed(1)
+random.seed(1)
 
 # datasets
 data_dir = './dataset'
@@ -47,9 +57,24 @@ def multi_metrics(preds, targets):
         }
 
 
-checker = Checker('loss', mode='min', patience=2)
+checker = CheckCallback('loss', on_stage='val', mode='min', patience=2)
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
-trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=100, checker=checker, metrics=[acc, multi_metrics])
 
-progress = trainer.fit(train_dl, val_dl)
+
+trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=100, callbacks=checker, metrics=[acc])
+
+# 使用示例1：
+progress = trainer.fit(train_dl, val_dl, metrics=[multi_metrics], resume=True)
 test_rst = trainer.test(test_dl)
+
+# 使用示例2：
+# t1 = EpochTask(train_dl, metrics=[acc])
+# t2 = EpochTask(val_dl, metrics=[multi_metrics], do_loss=True)
+# progress = trainer.fit(train_tasks=t1, val_tasks=t2)
+# test_rst = trainer.test(tasks=t2)
+
+# 使用示例3：
+# t1 = EpochTask(train_dl, metrics=[acc])
+# t2 = EpochTask(val_dl, metrics=[acc, multi_metrics], do_loss=True)
+# progress = trainer.fit(train_dl, val_tasks=[t1, t2])
+# test_rst = trainer.test(tasks=[t1, t2])

@@ -1,17 +1,13 @@
 """
 @author: hitlic
 DeepEpochs is a simple Pytorch deep learning model training tool(see https://github.com/hitlic/deepepochs).
-loops.py is the core file. It does not depend on other files, so it can be copied directly to a new training
-project and used to customize a new Trainer.
 """
 import os
 from os import path as osp
 import abc
-from collections import defaultdict
 import torch
-from torch.optim import Adam
 import numpy as np
-from typing import List, Callable, Literal
+from typing import Literal
 
 
 class ddict(dict):
@@ -118,17 +114,17 @@ def log_epoch(stages_metrics, epoch_idx, epochs):
         val_info = ''
         if val_metrics is not None:
             val_info = info(val_metrics)
-            val_info = '  VAL> ' + val_info
-        print_out(f'E{epoch_idx:>4}/{epochs:<4} TRAIN> {train_info}{val_info}')
+            val_info = ' VAL> ' + val_info
+        print_out(f'E{epoch_idx:>4}/{epochs:<5} TRAIN> {train_info}{val_info}')
     elif test_metrics is not None:
         test_info = info(test_metrics)
-        print_out(f'E{epoch_idx:>4}/{epochs:<4} TEST> {test_info}')
+        print_out(f'E{epoch_idx:>4}/{epochs:<5} TEST> {test_info}')
     else:
         raise ValueError("log_epoch 参数错误!")
 
 
 def info(m_dict):
-    return ' '.join([f'{k}: {str(to_numpy(v).round(6)):<8}' for k, v in m_dict.items()])
+    return ' '.join([f'{k}: {str(to_numpy(v).round(6)):<9}' for k, v in m_dict.items()])
 
 
 def print_out(content, end='\r\n'):
@@ -163,7 +159,7 @@ def to_numpy(data):
         if isinstance(d, torch.Tensor):
             return d.detach().cpu().numpy()
         else:
-            return d
+            return np.array(d, dtype=float)
     if isinstance(data, (list, tuple)):
         return [to(d) for d in data]
     elif isinstance(data, dict):
@@ -195,59 +191,6 @@ def check_path(path, create=True):
             os.makedirs(path)
         else:
             raise ValueError(f'Path "{path}" does not exists!')
-
-
-class Checker:
-    def __init__(self, monitor, mode='max', patience=None, path='./logs/checkpoint'):
-        """
-        实现了checkpoint和early stopping。
-        Args:
-            monitor: metric name in validation stage
-            mode: max or min
-            patience: early stopping patience
-            path: path to save the best checkpoint
-        """
-        self.model = None      # 模型
-        self.monitor = monitor
-        self.mode = mode
-        self.patience = patience
-
-        assert mode in ['min', 'max']
-        if mode == 'max':
-            self.best_value = -100000000.0
-        else:
-            self.best_value = 100000000.0
-
-        check_path(path)
-        self.path = osp.join(path, 'model.ckpt')
-
-        self.worse_times = 0
-
-    def check(self, metrics):
-        value = metrics[self.monitor]
-        if self.mode == 'max':
-            if  value > self.best_value:
-                self.best_value = value
-                self.save_model()
-                self.worse_times = 0
-            else:
-                self.worse_times += 1
-        else:
-            if value < self.best_value:
-                self.best_value = value
-                self.save_model()
-                self.worse_times = 0
-            else:
-                self.worse_times += 1
-        if self.patience is not None and self.worse_times >= self.patience:
-            return False
-        return True
-
-    def save_model(self):
-        torch.save(self.model.state_dict(), self.path)
-
-    def load_best(self):
-        self.model.load_state_dict(torch.load(self.path))
 
 
 class PatchBase(abc.ABC):
@@ -587,129 +530,99 @@ def default_loss(preds, targets):
     return preds
 
 
-class TrainerBase:
-    def __init__(self, model:torch.nn.Module, loss:Callable=None, opt:torch.optim.Optimizer=None, epochs:int=1000,
-                 metrics: List[Callable]=None, device=None, val_freq:int=1, checker:Checker=None):
+class StopLoopException(Exception):
+    pass
+
+
+class LoopException(Exception):
+    pass
+
+
+class Optimizer:
+    def __init__(self, opt, scheduler=None, sched_on='epoch', sched_with_loss=False):
         """
+        优化器组合，对优化器和学习率调度器进行统一管理。
         Args:
-            model:      Pytorch模型
-            loss:       损失函数
-            opt:        优化器
-            epochs:     迭代次数
-            metrics:    指标
-            device:     cpu或cuda
-            val_freq:   验证频率
-            checker:    Checker类的对象，实现了checkpoint和early stopping
+            opt:             torch.optim.*
+            scheduler:       torch.optim.lr_scheduler.*
+            sched_on:        学习率调整是每个epoch还是每个step
+            sched_with_loss: scheduler.step方法是否需要损失作为参数（例如ReduceLROnPlateau）
         """
-        # 配置损失函数
-        if loss is None:
-            self.loss = default_loss
+        self.opt = opt
+        self.scheduler = scheduler
+        assert sched_on in ['step', 'epoch'], '`sched_on`取值为"step"或"epoch"!'
+        self.sched_on = sched_on
+        self.sched_with_loss = sched_with_loss
+
+    def zero_grad(self):
+        self.opt.zero_grad()
+
+    def get_last_lr(self):
+        return self.scheduler.get_last_lr()
+
+    def step(self, at='step', loss=None):
+        if at == 'step':
+            self.opt.step()
+            if self.sched_on == 'step':
+                self.sched_step(loss)
+        elif at == 'epoch':
+            if self.sched_on == 'epoch':
+                self.sched_step(loss)
         else:
-            self.loss = loss
-        # 配置优化器
-        if opt is None:
-            self.opt = Adam(model.parameters(), lr=0.001)
+            raise ValueError('Optimizer.step方法的`at`参数取值为"step"或"epoch"')
+
+    def sched_step(self, loss):
+        if self.scheduler is not None:
+            if self.sched_with_loss:
+                assert loss is not None, "学习率调度要求损失作为参数，但`train_step`和`evaluate_step`都没有返回`loss`！"
+                self.scheduler.step(loss)
+            else:
+                self.scheduler.step()
+
+    def state_dict(self):
+        if self.scheduler is None:
+            return self.opt.state_dict()
+        return self.opt.state_dict(), self.scheduler.state_dict()
+
+    def load_state_dict(self, opt_state, sched_state=None):
+        self.opt.load_state_dict(opt_state)
+        if sched_state is not None:
+            self.scheduler.load_state_dict(opt_state)
+
+
+class Optimizers(list):
+    """
+    用于管理多个优化器组合（Optimizer），对多个优化器提供支持。
+    """
+    def zero_grad(self):
+        for opt in self:
+            opt.zero_grad()
+
+    def get_last_lr(self):
+        return [opt.get_last_lr() for opt in self]
+
+    def step(self, at='step', loss=None):
+        for opt in self:
+            opt.step(at, loss)
+
+    def state_dict(self):
+        return [opt.state_dict for opt in self]
+
+    def load_state_dict(self, opt_states, sched_states=None):
+        if sched_states is None:
+            for opt, opt_state in zip(self, opt_states):
+                opt.load_state_dict(opt_state)
         else:
-            self.opt = opt
-        self.epochs = epochs        # 迭代次数
-        self.metrics = metrics      # 指标
-        if device is not None:
-            self.device = device
-        else:
-            self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.model = model.to(self.device)
-        self.val_freq = val_freq    # 验证频率
+            for opt, opt_state, sched_state in zip(self, opt_states, sched_states):
+                opt.load_state_dict(opt_state, sched_state)
 
-        # 配置checkpoint和early stop
-        self.checker = checker
-        if checker is not None:
-            self.checker.model = model
 
-    def fit(self, train_dl, val_dl=None):
-        """该方法尽量不要变动"""
-        progress = defaultdict(list)   # 保存各epoch的指标值
-        try:
-            for epoch_idx in range(self.epochs):
-                # training
-                self.model.train()
-                train_metrics = []
-                batchs = len(train_dl)
+def save_state(model, opt, path):
+    state = {'model_state': model.state_dict(), 'opt_state': opt.state_dict()}
+    torch.save(state, path)
 
-                for batch_idx, batch_data in enumerate(train_dl):
-                    batch_x, batch_y = self.prepare_data(batch_data)
-                    train_m = self.train_step(batch_x, batch_y)
-                    train_metrics.append(train_m)
-                    with torch.no_grad():
-                        # 计算当前batch的指标并输出
-                        log_batch(flatten_dict(run_patch_dict(train_m), sep=''), epoch_idx+1, self.epochs, batch_idx+1, batchs, 'TRAIN')
-                with torch.no_grad():
-                    # 计算当前epoch的指标
-                    train_metrics = flatten_dict(run_patch_dicts(train_metrics), sep='')
-                progress['train'].append(train_metrics)
 
-                # validation
-                if val_dl is not None and (epoch_idx + 1) % self.val_freq == 0:
-                    self.model.eval()
-                    val_metrics = []
-                    batchs = len(val_dl)
-                    with torch.no_grad():
-                        for batch_idx, batch_data in enumerate(val_dl):
-                            batch_x, batch_y = self.prepare_data(batch_data)
-                            val_m = self.evaluate_step(batch_x, batch_y)
-                            val_metrics.append(val_m)
-                            # 计算当前batch的指标并输出
-                            log_batch(flatten_dict(run_patch_dict(val_m), sep=''), epoch_idx+1, self.epochs, batch_idx+1, batchs, 'VAL')
-                        # 计算当前epoch的指标
-                        val_metrics = flatten_dict(run_patch_dicts(val_metrics), sep='')
-                        progress['val'].append(val_metrics)
-                    # 输出当前epoch的训练和验证结果
-                    log_epoch({'train': train_metrics, 'val': val_metrics}, epoch_idx+1, self.epochs)
-                    # 检查是否需要保存checkpoint、是否满足早停条件
-                    if self.checker is not None and not self.checker.check(val_metrics):
-                        print('Early stopping triggered!')
-                        break
-                else:
-                    log_epoch({'train': train_metrics}, epoch_idx+1, self.epochs)
-
-        except KeyboardInterrupt:
-            print('\nStop trainning manually!')
-        return {k: concat_dicts(v) for k, v in progress.items()}
-
-    def prepare_data(self, batch_data):
-        batch_x, batch_y = TensorTuple(batch_data[:-1]).to(self.device), TensorTuple(batch_data[-1:]).to(self.device)
-        return batch_x, batch_y[0] if len(batch_y)==1 else batch_y
-
-    def test(self, test_dl):
-        print('-'*30)
-        if self.checker is not None:
-            print('loading best model ...')
-            self.checker.load_best()  # 加载最优模型
-        # testing
-        self.model.eval()
-        test_metrics = []
-        batchs = len(test_dl)
-        with torch.no_grad():
-            for batch_idx, batch_data in enumerate(test_dl):
-                batch_x, batch_y = self.prepare_data(batch_data)
-                test_m = self.evaluate_step(batch_x, batch_y)
-                test_metrics.append(test_m)
-                # 计算当前batch的指标并输出
-                log_batch(flatten_dict(run_patch_dict(test_m), sep=''), 1, 1, batch_idx+1, batchs, 'TEST')
-            # 计算当前epoch的指标
-            test_metrics = flatten_dict(run_patch_dicts(test_metrics), sep='')
-        log_epoch({'test': test_metrics}, 1, 1)
-        return to_numpy(test_metrics)
-
-    def train_step(self, batch_x, batch_y):
-        """
-        TODO: 非常规训练可修改本方法中的代码。
-        注意：本方法返回一个字典，键为指标名，值为封装了数据和指标函数的PatchBase子类对象。
-        """
-        raise NotImplementedError("Trainer.train_step 方法未实现！")
-
-    def evaluate_step(self, batch_x, batch_y):
-        """
-        TODO: 非常规验证或测试可修改本方法中的代码。
-        注意：本方法返回一个字典，键为指标名，值为封装了数据和指标函数的PatchBase子类对象。
-        """
-        raise NotImplementedError("Trainer.evaluate_step 方法未实现！")
+def load_state(model, opt, path):
+    state = torch.load(path)
+    model.load_state_dict(state['model_state'])
+    opt.load_state_dict(state['opt_state'])
