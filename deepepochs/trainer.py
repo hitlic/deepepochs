@@ -18,7 +18,7 @@ class EpochTask:
             dataloader: pytorch Dataloader
             metrics:    指标函数列表
             do_loss:    验证和测试中是否计算据损失
-            args:       其他需要传递给`step`、`train_step`、`val_step`、`test_step`和`evaluate`的参数
+            args:       其他需要传递给`step`、`train_step`、`val_step`、`test_step`和`evaluate`方法的参数
         """
         self.dataloader = dataloader
         self.batchs = len(dataloader)
