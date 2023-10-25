@@ -75,17 +75,17 @@ opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 
 trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=100, callbacks=checker, metrics=[acc])
 
-# 应用示例1：
+# 应用示例1：自动加载Checkpoint
 progress = trainer.fit(train_dl, val_dl, metrics=[multi_metrics], resume=True)
 test_rst = trainer.test(test_dl)
 
-# 应用示例2：
+# 应用示例2：定义EpochTask任务（一个Dataloader上的训练、验证或测试称为一个任务）
 # t1 = EpochTask(train_dl, metrics=[acc])
 # t2 = EpochTask(val_dl, metrics=[multi_metrics], do_loss=True)
 # progress = trainer.fit(train_tasks=t1, val_tasks=t2)
 # test_rst = trainer.test(tasks=t2)
 
-# 应用示例3：
+# 应用示例3：多任务训练、验证和测试
 # t1 = EpochTask(train_dl, metrics=[acc])
 # t2 = EpochTask(val_dl, metrics=[acc, multi_metrics], do_loss=True)
 # progress = trainer.fit(train_dl, val_tasks=[t1, t2])
@@ -98,20 +98,25 @@ test_rst = trainer.test(test_dl)
     - 第1步：继承`deepepochs.Callback`类，定制满足需要的`Callback`
     - 第2步：使用`deepepochs.Trainer`训练模型，将定制的`Callback`对象作为`Trainer`的`callbacks`参数
 - 方法2:
-    - 第1步：继承`deepepochs.TrainerBase`类，定制满足需要的`Trainer`，实现`train_step`、`val_step`、`test_step`或`evaluate_step`方法
-        - 参数分别为
+    - 第1步：继承`deepepochs.TrainerBase`类，定制满足需要的`Trainer`，实现`step`、`train_step`、`val_step`、`test_step`或`evaluate_step`方法
+        - 这些方法有三个参数
             - `batch_x`：一个mini-batch的模型输入数据
             - `batch_y`：一个mini-batch的标签
             -  `**kwargs`：可变参数字典，包含`do_loss`、`metrics`等参数
-        - 返回值为字典：key为指标名称，value为`DeepEpochs.PatchBase`子类对象，可用的Patch有
-            - `ValuePatch`：    根据每个batch指标均值（提前计算好）和batch_size，累积计算Epoch指标均值
-            - `TensorPatch`：   保存每个batch模型预测输出及标签，根据指定指标函数累积计算Epoch指标均值
-            - `MeanPatch`：     保存每个batch指标均值，根据指定指标函数累积计算Epoch指标均值
-            - `ConfusionPatch`：累积计算基于混淆矩阵的指标
+        - 返回值为字典
+            - key：指标名称
+            - value：`DeepEpochs.PatchBase`子类对象，可用的Patch有
+                - `ValuePatch`：    根据每个batch指标均值（提前计算好）和batch_size，累积计算Epoch指标均值
+                - `TensorPatch`：   保存每个batch模型预测输出及标签，根据指定指标函数累积计算Epoch指标均值
+                - `MeanPatch`：     保存每个batch指标均值，根据指定指标函数累积计算Epoch指标均值
+                - `ConfusionPatch`：累积计算基于混淆矩阵的指标
+                - 也可以继承`PatchBase`定义新的Patch（存在复杂指标运算的情况下）
+                    - `PatchBase.add`方法
+                    - `PatchBase.forward`方法
     - 第2步：调用定制`Trainer`训练模型。
 - 方法3:
     - 第1步：继承`deepepochs.EpochTask`类，在其中定义`step`、`train_step`、`val_step`、`test_step`或`evaluate_step`方法
-        - 它们的定义方式与`Trainer.train_step`和`Trainer.evaluate_step`相同
+        - 它们的定义方式与`Trainer`中的`*step`方法相同
         - `step`方法优先级最高，即可用于训练也可用于验证和测试（定义了`step`方法，其他方法就会失效）
         - `val_step`、`test_step`优先级高于`evaluate_step`方法
         - `EpochTask`中的`*_step`方法优先级高于`Trainer`中的`*_step`方法
