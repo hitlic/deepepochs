@@ -100,9 +100,9 @@ test_rst = trainer.test(test_dl)
 - 方法2:
     - 第1步：继承`deepepochs.TrainerBase`类，定制满足需要的`Trainer`，实现`step`、`train_step`、`val_step`、`test_step`或`evaluate_step`方法
         - 这些方法有三个参数
-            - `batch_x`：一个mini-batch的模型输入数据
-            - `batch_y`：一个mini-batch的标签
-            -  `**kwargs`：可变参数字典，包含`do_loss`、`metrics`等参数
+            - `batch_x`：     一个mini-batch的模型输入数据
+            - `batch_y`：     一个mini-batch的标签
+            -  `**step_args`：可变参数字典，包含`do_loss`、`metrics`等参数
         - 返回值为字典
             - key：指标名称
             - value：`DeepEpochs.PatchBase`子类对象，可用的Patch有
@@ -120,7 +120,7 @@ test_rst = trainer.test(test_dl)
         - `step`方法优先级最高，即可用于训练也可用于验证和测试（定义了`step`方法，其他方法就会失效）
         - `val_step`、`test_step`优先级高于`evaluate_step`方法
         - `EpochTask`中的`*_step`方法优先级高于`Trainer`中的`*_step`方法
-    - 第2步：使用将新的`EpochTask`任务进行训练。
+    - 第2步：使用新的`EpochTask`任务进行训练
         - 将`EpochTask`对象作为`Trainer.fit`中`train_tasks`和`val_tasks`的参数值，或者`Trainer.test`方法中`tasks`的参数值
 
 #### 数据流图

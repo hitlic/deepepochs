@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 
 class EpochTask:
     """一个Epoch的训练、验证或测试任务"""
-    def __init__(self, dataloader, metrics=None, do_loss=True, **kwargs):
+    def __init__(self, dataloader, metrics=None, do_loss=True, **step_args):
         """
         Args:
             dataloader: pytorch Dataloader
@@ -26,7 +26,7 @@ class EpochTask:
         self.do_loss = do_loss
         self.trainer = None
         self.stage = None
-        self.kwargs = kwargs
+        self.step_args = step_args
 
     def __len__(self):
         return self.batchs
@@ -62,9 +62,9 @@ class EpochTask:
                 # 运行mini-batch的`*step`方法
                 if self.stage == 'train':
                     with torch.enable_grad():
-                        m_value = step_method(batch_x, batch_y, metrics=self.metrics, do_loss=True, **self.kwargs)
+                        m_value = step_method(batch_x, batch_y, metrics=self.metrics, do_loss=True, **self.step_args)
                 else:
-                    m_value = step_method(batch_x, batch_y, metrics=self.metrics, do_loss=self.do_loss, **self.kwargs)
+                    m_value = step_method(batch_x, batch_y, metrics=self.metrics, do_loss=self.do_loss, **self.step_args)
 
                 metrics_values.append(m_value)
 
@@ -268,14 +268,14 @@ class TrainerBase:
             print('\n', e, sep='')
         return {}
 
-    def train_step(self, batch_x, batch_y, **kwargs) -> Dict[str, PatchBase]:
+    def train_step(self, batch_x, batch_y, **step_args) -> Dict[str, PatchBase]:
         """
         TODO: 非常规训练可修改本方法中的代码。
         注意：本方法返回一个字典，键为指标名，值为封装了数据的ValuePatch或者Patch。
         """
         raise NotImplementedError("`Trainer.train_step`方法未实现！")
 
-    def evaluate_step(self,batch_x, batch_y, **kwargs) -> Dict[str, PatchBase]:
+    def evaluate_step(self,batch_x, batch_y, **step_args) -> Dict[str, PatchBase]:
         """
         TODO: 非常规验证或测试可修改本方法中的代码。也可以定义val_step方法或test_step方法。
         注意：本方法返回一个字典，键为指标名，值为封装了数据的ValuePatch或者Patch。
@@ -287,7 +287,7 @@ class Trainer(TrainerBase):
     def train_step(self,
                    batch_x:[torch.Tensor, List[torch.Tensor]],
                    batch_y:[torch.Tensor, List[torch.Tensor]],
-                   **kwargs
+                   **step_args
                    ) -> Dict[str, PatchBase]:
         """
         TODO: 非常规训练可修改本方法中的代码。
@@ -302,14 +302,14 @@ class Trainer(TrainerBase):
         self.opt.step()
 
         results = {'loss': ValuePatch(loss.detach(), len(model_out))}
-        for m in kwargs.get('metrics', list()):
+        for m in step_args.get('metrics', list()):
             results[m.__name__] = TensorPatch(m, model_out, batch_y)
         return results
 
     def evaluate_step(self,
                       batch_x:[torch.Tensor, List[torch.Tensor]],
                       batch_y:[torch.Tensor, List[torch.Tensor]],
-                      **kwargs
+                      **step_args
                       ) -> Dict[str, PatchBase]:
         """
         TODO: 非常规验证或测试可修改本方法中的代码。
@@ -317,10 +317,10 @@ class Trainer(TrainerBase):
         """
         model_out = self.model(*batch_x)
         loss = self.loss(model_out, batch_y)
-        if kwargs.get('do_loss', False):  # 如果存在do_loss参数，且值为True则计算损失
+        if step_args.get('do_loss', False):  # 如果存在do_loss参数，且值为True则计算损失
             results = {'loss': ValuePatch(loss.detach(), len(model_out))}
         else:
             results = {}
-        for m in kwargs.get('metrics', list()):
+        for m in step_args.get('metrics', list()):
             results[m.__name__] = TensorPatch(m, model_out, batch_y)
         return results
