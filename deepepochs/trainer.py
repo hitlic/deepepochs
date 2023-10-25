@@ -12,12 +12,13 @@ from torch.utils.data import DataLoader
 
 class EpochTask:
     """一个Epoch的训练、验证或测试任务"""
-    def __init__(self, dataloader, metrics=None, do_loss=True):
+    def __init__(self, dataloader, metrics=None, do_loss=True, **kwargs):
         """
         Args:
             dataloader: pytorch Dataloader
-            metrics: 指标函数列表
-            do_loss: 验证和测试中是否计算据损失
+            metrics:    指标函数列表
+            do_loss:    验证和测试中是否计算据损失
+            args:       其他需要传递给`step`、`train_step`、`val_step`、`test_step`和`evaluate`的参数
         """
         self.dataloader = dataloader
         self.batchs = len(dataloader)
@@ -25,6 +26,7 @@ class EpochTask:
         self.do_loss = do_loss
         self.trainer = None
         self.stage = None
+        self.kwargs = kwargs
 
     def __len__(self):
         return self.batchs
@@ -60,9 +62,9 @@ class EpochTask:
                 # 运行mini-batch的`*step`方法
                 if self.stage == 'train':
                     with torch.enable_grad():
-                        m_value = step_method(batch_x, batch_y, metrics=self.metrics, do_loss=True)
+                        m_value = step_method(batch_x, batch_y, metrics=self.metrics, do_loss=True, **self.kwargs)
                 else:
-                    m_value = step_method(batch_x, batch_y, metrics=self.metrics, do_loss=self.do_loss)
+                    m_value = step_method(batch_x, batch_y, metrics=self.metrics, do_loss=self.do_loss, **self.kwargs)
 
                 metrics_values.append(m_value)
 
@@ -132,12 +134,17 @@ class TrainerBase:
         metrics = [] if metrics is None else metrics
         self.general_metrics = [metrics] if callable(metrics) else list(metrics)
 
-    def fit(self, train_dl:DataLoader=None, val_dl:DataLoader=None, metrics:List[Callable]=None, val_freq:int=1, do_val_loss:bool=True,
-            train_metrics:List[Callable]=None, val_metrics:List[Callable]=None,
+    def fit(self,
+            train_dl: DataLoader=None,
+            val_dl: DataLoader=None,
+            metrics: List[Callable]=None,
+            val_freq: int=1,
+            do_val_loss: bool=True,
+            train_metrics: List[Callable]=None,
+            val_metrics: List[Callable]=None,
             train_tasks: List[EpochTask]=None,
-            val_tasks:List[EpochTask]= None,
+            val_tasks: List[EpochTask]= None,
             resume: bool=False,
-            ckpt_path:str = './logs/checkpoint/model.ckpt'
             )-> Dict[str, list]:
         """
         训练模型。
@@ -153,18 +160,12 @@ class TrainerBase:
             val_metrics:   验证指标函数列表；可与metrics参数同时使用
             train_tasks:   训练任务（EpochTask对象）列表
             val_tasks:     验证任务（EpochTask对象）列表；当需要在多个验证数据集上进行不同指标的验证时，将数据和指标封装为EpochTask
-            resume:        是否加载已保存的最优模型继续训练
-            ckpt_path:     最优模型保存路径
+            resume:        是否加载已保存的最优模型（当使用CheckCallback时有效）
         """
-        if resume:
-            try:
-                print('loading best model ...')
-                load_state(self.model, self.opt, ckpt_path)
-            except Exception as e:
-                print('Loading failed, starting training with random parameters!')
-                print(e)
         assert not (train_dl is None and train_tasks is None), '`Trainer.fit`方法中，`train_dl`参数和`train_tasks`参数只能有一个为None！'
         assert not (train_dl is not None and train_tasks is not None), '`Trainer.fit`方法中，`train_dl`参数和`train_tasks`参数只能有一个不为None！'
+
+        self.resume = resume  # 该参数会被CheckCallback使用
 
         # 配置训练与验证指标
         metrics = [] if metrics is None else metrics
@@ -220,9 +221,8 @@ class TrainerBase:
             print('\nStop trainning manually!')
         except StopLoopException as e:
             print('\n', e, sep='')
-        except Exception as e:
-            print('\n训练过程出现异常：')
-            print('\t', e)
+        except LoopException as e:
+            print('\t', e, sep='')
 
         self.callbacks.trigger('after_fit', trainer=self)
         return {k: concat_dicts(v) for k, v in progress.items()}
@@ -264,9 +264,8 @@ class TrainerBase:
                 test_metric_values.update(m_values)
             self.callbacks.trigger('after_test_epochs', trainer=self, tasks=test_tasks, metrics=test_metric_values)
             return to_numpy(test_metric_values)
-        except Exception as e:
-            print("\n测试过程出现异常！")
-            print(e)
+        except LoopException as e:
+            print('\n', e, sep='')
         return {}
 
     def train_step(self, batch_x, batch_y, **kwargs) -> Dict[str, PatchBase]:
@@ -285,7 +284,11 @@ class TrainerBase:
 
 
 class Trainer(TrainerBase):
-    def train_step(self, batch_x:[torch.Tensor, List[torch.Tensor]], batch_y:[torch.Tensor, List[torch.Tensor]], **kwargs) -> Dict[str, PatchBase]:
+    def train_step(self,
+                   batch_x:[torch.Tensor, List[torch.Tensor]],
+                   batch_y:[torch.Tensor, List[torch.Tensor]],
+                   **kwargs
+                   ) -> Dict[str, PatchBase]:
         """
         TODO: 非常规训练可修改本方法中的代码。
         注意：本方法返回一个字典，键为指标名，值为封装了数据和指标函数的PatchBase子类对象。
@@ -303,7 +306,11 @@ class Trainer(TrainerBase):
             results[m.__name__] = TensorPatch(m, model_out, batch_y)
         return results
 
-    def evaluate_step(self, batch_x:[torch.Tensor, List[torch.Tensor]], batch_y:[torch.Tensor, List[torch.Tensor]], **kwargs) -> Dict[str, PatchBase]:
+    def evaluate_step(self,
+                      batch_x:[torch.Tensor, List[torch.Tensor]],
+                      batch_y:[torch.Tensor, List[torch.Tensor]],
+                      **kwargs
+                      ) -> Dict[str, PatchBase]:
         """
         TODO: 非常规验证或测试可修改本方法中的代码。
         注意：本方法返回一个字典，键为指标名，值为封装了数据和指标函数的PatchBase子类对象。

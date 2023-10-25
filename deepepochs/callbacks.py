@@ -355,20 +355,27 @@ class CheckCallback(Callback):
         if self.mode == 'max':
             if  value > self.best_value:
                 self.best_value = value
-                save_state(model, opt, self.path)
+                save_state(model, opt, self.path, best_value=self.best_value)
                 self.worse_times = 0
             else:
                 self.worse_times += 1
         else:
             if value < self.best_value:
                 self.best_value = value
-                save_state(model, opt, self.path)
+                save_state(model, opt, self.path, best_value=self.best_value)
                 self.worse_times = 0
             else:
                 self.worse_times += 1
         if self.patience is not None and self.worse_times >= self.patience:
             return False
         return True
+
+    def on_before_fit(self, trainer, epochs):
+        if trainer.resume:
+            try:
+                self.load_state(trainer)
+            except Exception:
+                print('Loading failed, starting training with random parameters!')
 
     def on_after_epoch(self, trainer, train_tasks, val_tasks, train_metrics, val_metrics, epoch_idx):
         monitor_metrics = train_metrics if self.on_stage == 'train' else val_metrics
@@ -379,5 +386,10 @@ class CheckCallback(Callback):
             raise LoopException(f"CheckCallback: {self.on_stage}阶段的指标中不包含 {self.monitor}!")
 
     def on_before_test_epochs(self, trainer, tasks):
+        self.load_state(trainer)
+
+    def load_state(self, trainer):
         print('loading best model ...')
-        load_state(trainer.model, trainer.opt, self.path)
+        other_params = load_state(trainer.model, trainer.opt, self.path)
+        for k, v in other_params.items():
+            setattr(self, k, v)

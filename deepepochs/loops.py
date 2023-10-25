@@ -558,7 +558,7 @@ class Optimizer:
         self.opt.zero_grad()
 
     def get_last_lr(self):
-        return self.scheduler.get_last_lr()
+        return self.scheduler.get_last_lr() if self.scheduler is not None else None
 
     def step(self, at='step', loss=None):
         if at == 'step':
@@ -589,6 +589,10 @@ class Optimizer:
         if sched_state is not None:
             self.scheduler.load_state_dict(opt_state)
 
+    def get_current_lr(self):
+        for param_group in self.opt.param_groups:
+            return param_group['lr']
+
 
 class Optimizers(list):
     """
@@ -616,9 +620,12 @@ class Optimizers(list):
             for opt, opt_state, sched_state in zip(self, opt_states, sched_states):
                 opt.load_state_dict(opt_state, sched_state)
 
+    def get_current_lr(self):
+        return [opt.get_current_lr() for opt in self]
 
-def save_state(model, opt, path):
-    state = {'model_state': model.state_dict(), 'opt_state': opt.state_dict()}
+
+def save_state(model, opt, path, **kwargs):
+    state = {'model_state': model.state_dict(), 'opt_state': opt.state_dict(), **kwargs}
     torch.save(state, path)
 
 
@@ -626,3 +633,4 @@ def load_state(model, opt, path):
     state = torch.load(path)
     model.load_state_dict(state['model_state'])
     opt.load_state_dict(state['opt_state'])
+    return {k: v for k, v in state.items() if k not in ['model_state', 'opt_state']}

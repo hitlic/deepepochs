@@ -99,7 +99,10 @@ test_rst = trainer.test(test_dl)
     - 第2步：使用`deepepochs.Trainer`训练模型，将定制的`Callback`对象作为`Trainer`的`callbacks`参数
 - 方法2:
     - 第1步：继承`deepepochs.TrainerBase`类，定制满足需要的`Trainer`，实现`train_step`、`val_step`、`test_step`或`evaluate_step`方法
-        - 参数分别为：`batch_x`, `batch_y`, `**kwargs`
+        - 参数分别为
+            - `batch_x`：一个mini-batch的模型输入数据
+            - `batch_y`：一个mini-batch的标签
+            -  `**kwargs`：可变参数字典，包含`do_loss`、`metrics`等参数
         - 返回值为字典：key为指标名称，value为`DeepEpochs.PatchBase`子类对象，可用的Patch有
             - `ValuePatch`：    根据每个batch指标均值（提前计算好）和batch_size，累积计算Epoch指标均值
             - `TensorPatch`：   保存每个batch模型预测输出及标签，根据指定指标函数累积计算Epoch指标均值
