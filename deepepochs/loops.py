@@ -101,7 +101,7 @@ def flatten_dict(d, parent_key='', sep='.'):
 def log_batch(metrics, epoch_idx, epochs, batch_idx, batchs, stage):
     """输出batch指标值"""
     batch_info = info(metrics)
-    print_out(f'E{epoch_idx:>4}/{epochs:<4} B{batch_idx:>4}/{batchs:<5} {stage}> {batch_info}', end='')
+    print_out(f'E {epoch_idx:>4}/{epochs:<4} B {batch_idx:>4}/{batchs:<5} {stage}> {batch_info}', end='')
 
 
 def log_epoch(stages_metrics, epoch_idx, epochs):
@@ -115,10 +115,10 @@ def log_epoch(stages_metrics, epoch_idx, epochs):
         if val_metrics is not None:
             val_info = info(val_metrics)
             val_info = '   VAL> ' + val_info
-        print_out(f'E{epoch_idx:>4}/{epochs:<5} TRAIN> {train_info}{val_info}')
+        print_out(f'E {epoch_idx:>4}/{epochs:<5} TRAIN> {train_info}{val_info}')
     elif test_metrics is not None:
         test_info = info(test_metrics)
-        print_out(f'E{epoch_idx:>4}/{epochs:<5} TEST> {test_info}')
+        print_out(f'E {epoch_idx:>4}/{epochs:<5} TEST> {test_info}')
     else:
         raise ValueError("log_epoch 参数错误!")
 

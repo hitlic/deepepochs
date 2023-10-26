@@ -8,6 +8,7 @@ from .loops import *
 from collections import defaultdict
 from .callbacks import Callback, CallbackPool, DefaultCallback
 from torch.utils.data import DataLoader
+from datetime import datetime
 
 
 class EpochTask:
@@ -162,6 +163,12 @@ class TrainerBase:
             val_tasks:     验证任务（EpochTask对象）列表；当需要在多个验证数据集上进行不同指标的验证时，将数据和指标封装为EpochTask
             resume:        是否加载已保存的最优模型（当使用CheckCallback时有效）
         """
+        print('=' * 50)
+        print(f'{"DeepEpochs":^50}')
+        print(f'training at {datetime.now()}')
+        param_size = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        print(f'total parameters {param_size}')
+        print('-' * 50)
         assert not (train_dl is None and train_tasks is None), '`Trainer.fit`方法中，`train_dl`参数和`train_tasks`参数只能有一个为None！'
         assert not (train_dl is not None and train_tasks is not None), '`Trainer.fit`方法中，`train_dl`参数和`train_tasks`参数只能有一个不为None！'
 
@@ -240,7 +247,7 @@ class TrainerBase:
             tasks:   测试任务（EpochTask对象）列表；当需要在多个测试数据集上进行不同指标的测试时，将数据和指标封装为EpochTask
         """
         assert not (test_dl is None and tasks is None), '`Trainer.test`方法中，`train_dl`参数和`task`参数不能同时为None！'
-        print('-'*30)
+        print('-'*50)
         metrics = [] if metrics is None else metrics
         metrics = [metrics] if callable(metrics) else list(metrics)
         metrics = self.general_metrics + metrics  # 使用Trainer.__init__中定义的通用指标
