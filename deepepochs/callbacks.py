@@ -3,8 +3,12 @@
 """
 from collections.abc import Iterable
 import time
-from .loops import log_batch, log_epoch, check_path, StopLoopException, LoopException, save_state, load_state
+from .loops import log_batch, log_epoch, check_path, StopLoopException, LoopException
 from os import path as osp
+import os
+import torch
+from tensorboardX import SummaryWriter
+from tensorboardX.summary import hparams
 
 
 class Callback:
@@ -271,7 +275,7 @@ class DefaultCallback(Callback):
             指标输出
             学习率调度
         """
-        super().__init__(priority=1)
+        super().__init__(priority=0)
 
     def on_before_fit(self, trainer, epochs):
         self.total_epochs = epochs
@@ -320,15 +324,15 @@ class DefaultCallback(Callback):
 
 
 class CheckCallback(Callback):
-    def __init__(self, monitor, on_stage='val', mode='min', patience=None, path='./logs/checkpoint'):
+    def __init__(self, monitor, on_stage='val', mode='min', patience=0, ckpt_dir='./logs'):
         """
-        实现功能：Checkpoint和Early Stopping
+        实现功能：Checkpoint和Early Stop。其中，仅保存监控指标最优Checkpoint。
         Args:
-            monitor:  监控指标
-            on_stage: 监控目标，'train'或'val'
-            mode:     监控指标模式，'max'或'min'
-            patience: Early Stopping 容忍指标连续变差的次数
-            path:     最优模型参数保存位置
+            monitor:   监控指标
+            on_stage:  监控目标，'train'或'val'
+            mode:      监控指标模式，'max'或'min'
+            patience:  Early Stop 容忍指标连续变差的次数，0表示不启用Early Stop
+            ckpt_dir:  最优模型Checkpoint的保存位置
         """
         self.monitor = monitor
         assert on_stage in ['train', 'val'], 'CheckCallback的`on_stage`参数取值为"train"或"val"'
@@ -342,54 +346,143 @@ class CheckCallback(Callback):
         else:
             self.best_value = 100000000.0
 
-        check_path(path)
-        self.path = osp.join(path, 'model.ckpt')
-
+        self.ckpt_dir = ckpt_dir
         self.worse_times = 0
         super().__init__(priority=-1)
 
     def check(self, metrics, model, opt):
         if self.monitor not in metrics:
             raise LoopException(f'CheckCallback: 要监控的{self.monitor}指标不存在！')
+
         value = metrics[self.monitor]
         if self.mode == 'max':
             if  value > self.best_value:
                 self.best_value = value
-                save_state(model, opt, self.path, best_value=self.best_value)
+                save_state(model, opt, self.ckpt_path, best_value=self.best_value)
                 self.worse_times = 0
             else:
                 self.worse_times += 1
         else:
             if value < self.best_value:
                 self.best_value = value
-                save_state(model, opt, self.path, best_value=self.best_value)
+                save_state(model, opt, self.ckpt_path, best_value=self.best_value)
                 self.worse_times = 0
             else:
                 self.worse_times += 1
-        if self.patience is not None and self.worse_times >= self.patience:
+        if self.patience > 0 and self.worse_times >= self.patience:
             return False
         return True
 
     def on_before_fit(self, trainer, epochs):
-        if trainer.resume:
+        if trainer.resume is not False:
+            if trainer.resume is True:
+                running_id = get_latest_running(self.ckpt_dir)  # 加载最近的checkpoint
+            else:
+                running_id = str(trainer.resume)                # 加载指定的checkpoint
             try:
-                self.load_state(trainer)
-            except Exception:
-                print('Loading failed, starting training with random parameters!')
+                print(f'loading checkpoint of running {running_id} ...')
+                path = osp.join(self.ckpt_dir, running_id, 'checkpoint.ckpt')
+                self.load_state(trainer, path)
+            except FileNotFoundError:
+                print('loading failed, checkpoint does not exist!\nstarting training with random parameters!')
+            except Exception as e:
+                print(f'Loading failed! {e}\nstarting training with random parameters!')
 
     def on_after_epoch(self, trainer, train_tasks, val_tasks, train_metrics, val_metrics, epoch_idx):
         monitor_metrics = train_metrics if self.on_stage == 'train' else val_metrics
         if self.monitor in monitor_metrics:
+            # 创建新的checkpoint路径
+            ckpt_dir = osp.join(self.ckpt_dir, trainer.running_id)
+            check_path(ckpt_dir)
+            self.ckpt_path = osp.join(ckpt_dir, 'checkpoint.ckpt')
+            # 检查
             if not self.check(monitor_metrics, trainer.model, trainer.opt):
                 raise StopLoopException(f"Early stopping triggered, by monitoring [{self.on_stage} {self.monitor}]!")
         else:
             raise LoopException(f"CheckCallback: {self.on_stage}阶段的指标中不包含 {self.monitor}!")
 
     def on_before_test_epochs(self, trainer, tasks):
-        self.load_state(trainer)
+        try:
+            if hasattr(self, 'ckpt_path'):
+                print(f'loading best model from running {trainer.running_id} ...')
+                self.load_state(trainer, self.ckpt_path)
+        except FileNotFoundError as e:
+            print('loading best failed,', e)
+            print('testing with leatest model.')
 
-    def load_state(self, trainer):
-        print('loading best model ...')
-        other_params = load_state(trainer.model, trainer.opt, self.path)
+    def load_state(self, trainer, ckpt_path):
+        other_params = load_state(trainer.model, trainer.opt, ckpt_path)
         for k, v in other_params.items():
             setattr(self, k, v)
+
+
+def save_state(model, opt, path, **kwargs):
+    state = {'model_state': model.state_dict(), 'opt_state': opt.state_dict(), **kwargs}
+    torch.save(state, path)
+
+
+def load_state(model, opt, path):
+    state = torch.load(path)
+    model.load_state_dict(state['model_state'])
+    opt.load_state_dict(state['opt_state'])
+    return {k: v for k, v in state.items() if k not in ['model_state', 'opt_state']}
+
+
+def get_latest_running(from_dir):
+    try:
+        dir_list = [f for f in os.listdir(from_dir) if osp.isdir(osp.join(from_dir, f))]
+        file_list = sorted(dir_list, key=lambda f: osp.getctime(osp.join(from_dir, f)))
+        return file_list[-1]
+    except Exception:
+        return ''
+
+
+class LogCallback(Callback):
+    def __init__(self, log_dir='./logs'):
+        super().__init__(priority=1)
+        self.log_dir=log_dir
+        self.train_batch_idx = 0
+        self.train_epoch_idx = 0
+        self.val_batch_idx = 0
+        self.val_epoch_idx = 0
+
+    def log(self, metrics, stage, loop_phase, idx):
+        for k, v in metrics.items():
+            self.logger.add_scalar(f'{k}/{loop_phase}/{stage}', v, idx)
+
+    def log_hparams(self, hyper_params, metrics):
+        # 将超参数写入已有文件之中
+        exp, ssi, sei = hparams(hyper_params, metrics)
+        self.logger.file_writer.add_summary(exp)
+        self.logger.file_writer.add_summary(ssi)
+        self.logger.file_writer.add_summary(sei)
+        for k, v in metrics.items():
+            self.logger.add_scalar(k, v)
+
+    def on_before_fit(self, trainer, epochs):
+        log_dir = osp.join(self.log_dir, trainer.running_id)
+        check_path(log_dir)
+        self.logger = SummaryWriter(logdir=log_dir)
+
+    def on_after_train_batch(self, trainer, metrics, batch_idx):
+        self.train_batch_idx += 1
+        self.log(metrics, 'train', 'batch', self.train_batch_idx)
+
+    def on_after_train_epoch(self, trainer, task, metrics):
+        self.train_epoch_idx += 1
+        self.log(metrics, 'train', 'epoch', self.train_epoch_idx)
+
+    def on_after_val_batch(self, trainer, metrics, batch_idx):
+        self.val_batch_idx += 1
+        self.log(metrics, 'val', 'batch', self.val_batch_idx)
+
+    def on_after_val_epoch(self, trainer, task, metrics):
+        self.val_epoch_idx += 1
+        self.log(metrics, 'val', 'epoch', self.val_epoch_idx)
+
+    def on_after_test_epoch(self, trainer, task, metrics):
+        if trainer.hyper_params is not None:
+            self.log_hparams(trainer.hyper_params, metrics)
+
+    def run_tensorboard(self):
+        os.system(f'tensorboard --logdir={self.log_dir}')

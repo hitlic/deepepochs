@@ -4,6 +4,7 @@ DeepEpochs is a simple Pytorch deep learning model training tool(see https://git
 """
 import os
 from os import path as osp
+import time
 import abc
 import torch
 import numpy as np
@@ -187,10 +188,10 @@ def check_path(path, create=True):
     """检查路径是否存在"""
     if not osp.exists(path):
         if create:
-            print(f'The path `{path}` is created!')
             os.makedirs(path)
         else:
             raise ValueError(f'Path "{path}" does not exists!')
+    return path
 
 
 class PatchBase(abc.ABC):
@@ -622,15 +623,3 @@ class Optimizers(list):
 
     def get_current_lr(self):
         return [opt.get_current_lr() for opt in self]
-
-
-def save_state(model, opt, path, **kwargs):
-    state = {'model_state': model.state_dict(), 'opt_state': opt.state_dict(), **kwargs}
-    torch.save(state, path)
-
-
-def load_state(model, opt, path):
-    state = torch.load(path)
-    model.load_state_dict(state['model_state'])
-    opt.load_state_dict(state['opt_state'])
-    return {k: v for k, v in state.items() if k not in ['model_state', 'opt_state']}

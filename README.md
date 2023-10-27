@@ -25,7 +25,7 @@ pip install deepepochs
 #### 常规训练流程应用示例
 
 ```python
-from deepepochs import Trainer, CheckCallback, rename, EpochTask
+from deepepochs import Trainer, CheckCallback, rename, EpochTask, LogCallback
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -73,19 +73,19 @@ def multi_metrics(preds, targets):
 checker = CheckCallback('loss', on_stage='val', mode='min', patience=2)
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 
-trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=100, callbacks=checker, metrics=[acc])
+trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=5, callbacks=checker, metrics=[acc])
 
-# 应用示例1：自动加载Checkpoint
-progress = trainer.fit(train_dl, val_dl, metrics=[multi_metrics], resume=True)
-test_rst = trainer.test(test_dl)
+# 应用示例1：
+# progress = trainer.fit(train_dl, val_dl, metrics=[multi_metrics])
+# test_rst = trainer.test(test_dl)
 
-# 应用示例2：定义EpochTask任务（一个Dataloader上的训练、验证或测试称为一个任务）
+# 应用示例2：
 # t1 = EpochTask(train_dl, metrics=[acc])
 # t2 = EpochTask(val_dl, metrics=[multi_metrics], do_loss=True)
 # progress = trainer.fit(train_tasks=t1, val_tasks=t2)
 # test_rst = trainer.test(tasks=t2)
 
-# 应用示例3：多任务训练、验证和测试
+# 应用示例3：
 # t1 = EpochTask(train_dl, metrics=[acc])
 # t2 = EpochTask(val_dl, metrics=[acc, multi_metrics], do_loss=True)
 # progress = trainer.fit(train_dl, val_tasks=[t1, t2])

@@ -79,16 +79,22 @@ class EpochTask:
 
 
 class TrainerBase:
-    def __init__(self, model, loss=None, opt=None, epochs=1000, device=None, callbacks=None, metrics=None):
+    def __init__(self, model, loss=None, opt=None, epochs=1000, device=None, callbacks=None, metrics=None, resume=False, running_id=None, hyper_params=None):
         """
         Args:
-            model:      Pytorch模型（nn.Module）
-            loss:       损失函数
-            opt:        优化器，或优化器列表；优化器是Pytorch优化器或deepepochs.Optimizer对象
-            epochs:     迭代次数
-            device:     cpu或cuda
-            callbacks:  Callback或Callback列表。
-            metrics:    指标函数列表；通用于训练、验证和测试。
+            model:                       Pytorch模型（nn.Module）
+            loss:                        损失函数
+            opt:                         优化器，或优化器列表；优化器是Pytorch优化器或deepepochs.Optimizer对象
+            epochs [int]:                迭代次数
+            device [str]:                cpu或cuda
+            callbacks [List[Callback]]:  Callback或Callback列表。
+            metrics [Callable]:          指标函数列表；通用于训练、验证和测试。
+            resume [bool, int, str]:     是否从logs文件平中的Checkpoint加载
+                                            - False表示不加载
+                                            - True表示从最新的Checkpoint加载
+                                            - int、str表示加载相应ID的Checkpoint
+            running_id [int, str, None]: 当前训练的运行编号，用于指定日志和checkpoint的文件夹名
+            hyper_params [dict, None]:   调参所关注的重要超参数，用于写入日志文件辅助调参
         """
         # 配置损失函数
         if loss is None:
@@ -135,6 +141,14 @@ class TrainerBase:
         metrics = [] if metrics is None else metrics
         self.general_metrics = [metrics] if callable(metrics) else list(metrics)
 
+        self.resume = resume  # 该参数会被CheckCallback使用
+
+        if running_id is None:
+            self.running_id = str(int(time.time()))  # 以当前时间为running_id
+        else:
+            self.running_id = str(running_id)
+        self.hyper_params = hyper_params
+
     def fit(self,
             train_dl: DataLoader=None,
             val_dl: DataLoader=None,
@@ -145,35 +159,31 @@ class TrainerBase:
             val_metrics: List[Callable]=None,
             train_tasks: List[EpochTask]=None,
             val_tasks: List[EpochTask]= None,
-            resume: bool=False,
             )-> Dict[str, list]:
         """
         训练模型。
             当只有一个验证集时，指定val_dl和相应指标即可；
             当有多个验证集时，先每个数据集和相应指标定义EpochTask，然后传入val_tasks参数。
         Args:
-            train_dl:      训练Dataloader
-            val_dl:        验证Dataloader
-            metrics:       指标函数列表；同时用于训练和验证的。指标函数应当有(预测，标签)两个参数，并返回一个mini-batch的指标均值。
-            val_freq:      验证频率
-            do_val_loss:   是否计算验证损失
-            train_metrics: 训练指标函数列表；可与metrics参数同时使用
-            val_metrics:   验证指标函数列表；可与metrics参数同时使用
-            train_tasks:   训练任务（EpochTask对象）列表
-            val_tasks:     验证任务（EpochTask对象）列表；当需要在多个验证数据集上进行不同指标的验证时，将数据和指标封装为EpochTask
-            resume:        是否加载已保存的最优模型（当使用CheckCallback时有效）
+            train_dl:       训练Dataloader
+            val_dl:         验证Dataloader
+            metrics:        指标函数列表；同时用于训练和验证的。指标函数应当有(预测，标签)两个参数，并返回一个mini-batch的指标均值。
+            val_freq:       验证频率
+            do_val_loss:    是否计算验证损失
+            train_metrics:  训练指标函数列表；可与metrics参数同时使用
+            val_metrics:    验证指标函数列表；可与metrics参数同时使用
+            train_tasks:    训练任务（EpochTask对象）列表
+            val_tasks:      验证任务（EpochTask对象）列表；当需要在多个验证数据集上进行不同指标的验证时，将数据和指标封装为EpochTask
         """
         print('=' * 50)
-        print(f'{"DeepEpochs":^50}')
+        # print(f'{"DeepEpochs":^50}')
         print(f'training at {datetime.now()}')
         param_size = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         print(f'total parameters {param_size}')
         print('-' * 50)
         assert not (train_dl is None and train_tasks is None), '`Trainer.fit`方法中，`train_dl`参数和`train_tasks`参数只能有一个为None！'
         assert not (train_dl is not None and train_tasks is not None), '`Trainer.fit`方法中，`train_dl`参数和`train_tasks`参数只能有一个不为None！'
-
-        self.resume = resume  # 该参数会被CheckCallback使用
-
+ 
         # 配置训练与验证指标
         metrics = [] if metrics is None else metrics
         metrics = [metrics] if callable(metrics) else list(metrics)

@@ -58,14 +58,20 @@ def multi_metrics(preds, targets):
 
 
 checker = CheckCallback('loss', on_stage='val', mode='min', patience=2)
+logger = LogCallback()
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 
+
 trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=5,
-                  callbacks=checker, metrics=[acc])
+                  callbacks=[checker, logger],
+                  metrics=[acc],
+                  resume=1, running_id=1)
 
 # 应用示例1：
-# progress = trainer.fit(train_dl, val_dl, metrics=[multi_metrics])
-# test_rst = trainer.test(test_dl)
+progress = trainer.fit(train_dl, val_dl,
+                        metrics=[multi_metrics]
+                        )
+test_rst = trainer.test(test_dl)
 
 # 应用示例2：
 # t1 = EpochTask(train_dl, metrics=[acc])
