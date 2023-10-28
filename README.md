@@ -76,8 +76,8 @@ opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=5, callbacks=checker, metrics=[acc])
 
 # 应用示例1：
-# progress = trainer.fit(train_dl, val_dl, metrics=[multi_metrics])
-# test_rst = trainer.test(test_dl)
+progress = trainer.fit(train_dl, val_dl, metrics=[multi_metrics])
+test_rst = trainer.test(test_dl)
 
 # 应用示例2：
 # t1 = EpochTask(train_dl, metrics=[acc])

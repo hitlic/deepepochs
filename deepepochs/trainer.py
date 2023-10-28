@@ -79,7 +79,7 @@ class EpochTask:
 
 
 class TrainerBase:
-    def __init__(self, model, loss=None, opt=None, epochs=1000, device=None, callbacks=None, metrics=None, resume=False, running_id=None, hyper_params=None):
+    def __init__(self, model, loss=None, opt=None, epochs=1000, device=None, callbacks=None, metrics=None, resume=False, running_id=None, hyper_params=None, long_output=False):
         """
         Args:
             model:                       Pytorch模型（nn.Module）
@@ -95,6 +95,7 @@ class TrainerBase:
                                             - int、str表示加载相应ID的Checkpoint
             running_id [int, str, None]: 当前训练的运行编号，用于指定日志和checkpoint的文件夹名
             hyper_params [dict, None]:   调参所关注的重要超参数，用于写入日志文件辅助调参
+            long_output [bool]:          指标输出为长格式（7位小说）还是短格式（4位小数）
         """
         # 配置损失函数
         if loss is None:
@@ -133,7 +134,7 @@ class TrainerBase:
             callbacks = [callbacks]
         else:
             callbacks = list(callbacks)
-        callbacks.append(DefaultCallback())  # 自动加入DefaultCallback
+        callbacks.append(DefaultCallback(long_output))  # 自动加入DefaultCallback
         self.callbacks = CallbackPool(callbacks)
         self.callbacks.prepare()
 

@@ -7,8 +7,8 @@ from .loops import log_batch, log_epoch, check_path, StopLoopException, LoopExce
 from os import path as osp
 import os
 import torch
-from tensorboardX import SummaryWriter
-from tensorboardX.summary import hparams
+from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard.summary import hparams
 
 
 class Callback:
@@ -269,13 +269,16 @@ class CallbackPool(list):
 
 
 class DefaultCallback(Callback):
-    def __init__(self):
+    def __init__(self, long_output):
         """
         默认启用的Callback，实现功能：
             指标输出
             学习率调度
+        Args:
+            long_output: 指标输出为长格式（7位小说）还是短格式（4位小数）
         """
         super().__init__(priority=0)
+        self.round_to = 7 if long_output else 4
 
     def on_before_fit(self, trainer, epochs):
         self.total_epochs = epochs
@@ -284,22 +287,25 @@ class DefaultCallback(Callback):
         self.epoch_idx = epoch_idx
         self.total_train_batchs = sum(task.batchs for task in train_tasks)  # 所有训练任务总batch数量
         self.total_val_batchs = sum(task.batchs for task in val_tasks)      # 所有验证任务总batch数量
-        self.current_train_batch_idx = 0                                    # 当前训练batch
-        self.current_val_batch_idx = 0                                      # 当前验证batch
+        self.global_train_batch_idx = 0                                     # 当前训练batch
+        self.global_val_batch_idx = 0                                       # 当前验证batch
+
+        self.epoch_width = len(str(self.total_epochs))
+        self.batch_width = len(str(max(self.total_val_batchs, self.total_train_batchs)))
 
     def on_after_train_batch(self, trainer, metrics, batch_idx):
-        self.current_train_batch_idx += 1
-        log_batch(metrics, self.epoch_idx+1, self.total_epochs, self.current_train_batch_idx, self.total_train_batchs, 'TRAIN')
+        self.global_train_batch_idx += 1
+        log_batch(metrics, self.epoch_idx+1, self.total_epochs, self.global_train_batch_idx, self.total_train_batchs, 'TRAIN', self.epoch_width, self.batch_width, self.round_to)
 
     def on_after_val_batch(self, trainer, metrics, batch_idx):
-        self.current_val_batch_idx += 1
-        log_batch(metrics, self.epoch_idx+1, self.total_epochs, self.current_val_batch_idx, self.total_val_batchs, 'VAL')
+        self.global_val_batch_idx += 1
+        log_batch(metrics, self.epoch_idx+1, self.total_epochs, self.global_val_batch_idx, self.total_val_batchs, 'VAL', self.epoch_width, self.batch_width, self.round_to)
 
     def on_after_epoch(self, trainer, train_tasks, val_tasks, train_metrics, val_metrics, epoch_idx):
         if val_metrics:
-            log_epoch({'train': train_metrics, 'val': val_metrics}, epoch_idx+1, self.total_epochs)
+            log_epoch({'train': train_metrics, 'val': val_metrics}, epoch_idx+1, self.total_epochs, self.epoch_width, self.round_to)
         else:
-            log_epoch({'train': train_metrics}, epoch_idx+1, self.total_epochs)
+            log_epoch({'train': train_metrics}, epoch_idx+1, self.total_epochs, self.epoch_width, self.round_to)
 
         # 根据调度器的配置改变优化器学习率
         if val_metrics:  # 优先使用验证损失
@@ -310,17 +316,17 @@ class DefaultCallback(Callback):
 
     def on_before_test_epochs(self, trainer, tasks):
         self.total_test_epochs = len(tasks)
-        self.current_test_epoch_id = 0
+        self.global_test_epoch_idx = 0
         self.total_test_batchs = sum(task.batchs for task in tasks)
-        self.current_test_batch_idx = 0
+        self.global_test_batch_idx = 0
 
     def on_after_test_epoch(self, trainer, task, metrics):
-        self.current_test_epoch_id += 1
-        log_epoch({'test': metrics}, self.current_test_epoch_id, self.total_test_epochs)
+        self.global_test_epoch_idx += 1
+        log_epoch({'test': metrics}, self.global_test_epoch_idx, self.total_test_epochs, self.epoch_width, self.round_to)
 
     def on_after_test_batch(self, trainer, metrics, batch_idx):
-        self.current_test_batch_idx += 1
-        log_batch(metrics, self.current_test_epoch_id, self.total_test_epochs, self.current_test_batch_idx, self.total_test_batchs, 'TEST')
+        self.global_test_batch_idx += 1
+        log_batch(metrics, self.global_test_epoch_idx, self.total_test_epochs, self.global_test_batch_idx, self.total_test_batchs, 'TEST', self.epoch_width, self.batch_width, self.round_to)
 
 
 class CheckCallback(Callback):
@@ -341,18 +347,20 @@ class CheckCallback(Callback):
         self.patience = patience
 
         assert mode in ['min', 'max']
-        if mode == 'max':
-            self.best_value = -100000000.0
-        else:
-            self.best_value = 100000000.0
+        self.best_value = -100000000.0 if  mode == 'max' else 100000000.0
 
         self.ckpt_dir = ckpt_dir
         self.worse_times = 0
         super().__init__(priority=-1)
 
     def check(self, metrics, model, opt):
+        """
+        Reture:
+            True:  表示继承执行
+            False: 表示达到Early Stop条件
+        """
         if self.monitor not in metrics:
-            raise LoopException(f'CheckCallback: 要监控的{self.monitor}指标不存在！')
+            raise LoopException(f'CheckCallback: 要监控的`{self.monitor}`指标不存在！')
 
         value = metrics[self.monitor]
         if self.mode == 'max':
@@ -386,7 +394,7 @@ class CheckCallback(Callback):
             except FileNotFoundError:
                 print('loading failed, checkpoint does not exist!\nstarting training with random parameters!')
             except Exception as e:
-                print(f'Loading failed! {e}\nstarting training with random parameters!')
+                print(f'loading failed! {e}\nstarting training with random parameters!')
 
     def on_after_epoch(self, trainer, train_tasks, val_tasks, train_metrics, val_metrics, epoch_idx):
         monitor_metrics = train_metrics if self.on_stage == 'train' else val_metrics
@@ -395,7 +403,7 @@ class CheckCallback(Callback):
             ckpt_dir = osp.join(self.ckpt_dir, trainer.running_id)
             check_path(ckpt_dir)
             self.ckpt_path = osp.join(ckpt_dir, 'checkpoint.ckpt')
-            # 检查
+            # 检查（保存checkpoint，early stop）
             if not self.check(monitor_metrics, trainer.model, trainer.opt):
                 raise StopLoopException(f"Early stopping triggered, by monitoring [{self.on_stage} {self.monitor}]!")
         else:
@@ -434,24 +442,27 @@ def get_latest_running(from_dir):
         file_list = sorted(dir_list, key=lambda f: osp.getctime(osp.join(from_dir, f)))
         return file_list[-1]
     except Exception:
-        return ''
+        return 'no_checkpoint'
+
 
 
 class LogCallback(Callback):
     def __init__(self, log_dir='./logs'):
         super().__init__(priority=1)
-        self.log_dir=log_dir
-        self.train_batch_idx = 0
-        self.train_epoch_idx = 0
-        self.val_batch_idx = 0
-        self.val_epoch_idx = 0
+        self.log_dir=os.path.abspath(log_dir)
+
+        self.global_train_batch_idx = 0
+        self.global_train_epoch_idx = 0
+        self.global_val_batch_idx = 0
+        self.global_val_epoch_idx = 0
 
     def log(self, metrics, stage, loop_phase, idx):
         for k, v in metrics.items():
             self.logger.add_scalar(f'{k}/{loop_phase}/{stage}', v, idx)
 
     def log_hparams(self, hyper_params, metrics):
-        # 将超参数写入已有文件之中
+        # self.logger.add_hparams(hyper_params, metrics)
+        # 下面的方式可以将超参数写入已有文件之中
         exp, ssi, sei = hparams(hyper_params, metrics)
         self.logger.file_writer.add_summary(exp)
         self.logger.file_writer.add_summary(ssi)
@@ -462,27 +473,27 @@ class LogCallback(Callback):
     def on_before_fit(self, trainer, epochs):
         log_dir = osp.join(self.log_dir, trainer.running_id)
         check_path(log_dir)
-        self.logger = SummaryWriter(logdir=log_dir)
-
-    def on_after_train_batch(self, trainer, metrics, batch_idx):
-        self.train_batch_idx += 1
-        self.log(metrics, 'train', 'batch', self.train_batch_idx)
-
-    def on_after_train_epoch(self, trainer, task, metrics):
-        self.train_epoch_idx += 1
-        self.log(metrics, 'train', 'epoch', self.train_epoch_idx)
-
-    def on_after_val_batch(self, trainer, metrics, batch_idx):
-        self.val_batch_idx += 1
-        self.log(metrics, 'val', 'batch', self.val_batch_idx)
-
-    def on_after_val_epoch(self, trainer, task, metrics):
-        self.val_epoch_idx += 1
-        self.log(metrics, 'val', 'epoch', self.val_epoch_idx)
+        self.logger = SummaryWriter(log_dir=log_dir)
 
     def on_after_test_epoch(self, trainer, task, metrics):
         if trainer.hyper_params is not None:
             self.log_hparams(trainer.hyper_params, metrics)
+
+    def on_after_train_batch(self, trainer, metrics, batch_idx):
+        self.global_train_batch_idx += 1
+        self.log(metrics, 'train', 'batch', self.global_train_batch_idx)
+
+    def on_after_train_epoch(self, trainer, task, metrics):
+        self.global_train_epoch_idx += 1
+        self.log(metrics, 'train', 'epoch', self.global_train_epoch_idx)
+
+    def on_after_val_batch(self, trainer, metrics, batch_idx):
+        self.global_val_batch_idx += 1
+        self.log(metrics, 'val', 'batch', self.global_val_batch_idx)
+
+    def on_after_val_epoch(self, trainer, task, metrics):
+        self.global_val_epoch_idx += 1
+        self.log(metrics, 'val', 'epoch', self.global_val_epoch_idx)
 
     def run_tensorboard(self):
         os.system(f'tensorboard --logdir={self.log_dir}')

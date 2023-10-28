@@ -23,7 +23,7 @@ setuptools.setup(
     keywords='',
     packages=setuptools.find_packages(exclude=['__pycache__', '__pycache__/*']),
     py_modules=[],  # any single-file Python modules that aren’t part of a package
-    install_requires=['torch>=1.5', 'torchmetrics', 'numpy', 'matplotlib', 'tensorboardX'
+    install_requires=['torch>=1.5', 'torchmetrics', 'numpy', 'matplotlib', 'tensorboard',
                       'scikit-learn', 'pandas', 'torchvision', 'torchaudio', 'torchtext'],
     python_requires='>=3.7'
 )

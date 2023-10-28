@@ -99,33 +99,54 @@ def flatten_dict(d, parent_key='', sep='.'):
     return dict(items)
 
 
-def log_batch(metrics, epoch_idx, epochs, batch_idx, batchs, stage):
-    """输出batch指标值"""
-    batch_info = info(metrics)
-    print_out(f'E {epoch_idx:>4}/{epochs:<4} B {batch_idx:>4}/{batchs:<5} {stage}> {batch_info}', end='')
+def log_batch(metrics, epoch_idx, epochs, batch_idx, batchs, stage, epoch_width=0, batch_width=0, round_to=4):
+    """
+    输出batch指标值
+    Args:
+        metrics:     指标值字典
+        epoch_idx:   当前epoch index
+        epochs:      总epochs数量
+        batch_idx:   当前batch index
+        batchs:      总batch数量
+        stage:       train、val或test
+        epoch_width: epoch的显示宽度
+        batch_width: batch的显示宽度
+        round_to:    指标值的小说保留位数
+    """
+    batch_info = info(metrics, round_to)
+    epoch_width = 4 if epoch_width==0 else epoch_width
+    batch_width = 4 if batch_width==0 else batch_width
+    epoch_idx, epochs = str(epoch_idx).rjust(epoch_width), str(epochs).ljust(epoch_width)
+    batch_idx, batchs = str(batch_idx).rjust(batch_width), str(batchs).ljust(batch_width)
+    print_out(f'E {epoch_idx}/{epochs}  B {batch_idx}/{batchs}  {stage}> {batch_info}', end='')
 
 
-def log_epoch(stages_metrics, epoch_idx, epochs):
+def log_epoch(stages_metrics, epoch_idx, epochs, epoch_width=0, round_to=4):
     """输出epoch指标值"""
+    epoch_width = 4 if epoch_width==0 else epoch_width
+    epoch_idx, epochs = str(epoch_idx).rjust(epoch_width), str(epochs).ljust(epoch_width)
+
     train_metrics = stages_metrics.get('train')
     val_metrics = stages_metrics.get('val')
     test_metrics = stages_metrics.get('test')
     if train_metrics is not None:
-        train_info = info(train_metrics)
+        train_info = info(train_metrics, round_to)
         val_info = ''
         if val_metrics is not None:
-            val_info = info(val_metrics)
-            val_info = '   VAL> ' + val_info
-        print_out(f'E {epoch_idx:>4}/{epochs:<5} TRAIN> {train_info}{val_info}')
+            val_info = info(val_metrics, round_to)
+            val_info = '  VAL> ' + val_info
+        print_out(f'E {epoch_idx}/{epochs}  TRAIN> {train_info}{val_info}')
     elif test_metrics is not None:
-        test_info = info(test_metrics)
-        print_out(f'E {epoch_idx:>4}/{epochs:<5} TEST> {test_info}')
+        test_info = info(test_metrics, round_to)
+        print_out(f'E {epoch_idx}/{epochs}  TEST> {test_info}')
     else:
         raise ValueError("log_epoch 参数错误!")
 
 
-def info(m_dict):
-    return ' '.join([f'{k}: {str(to_numpy(v).round(6)):<9}' for k, v in m_dict.items()])
+def info(m_dict, round_to):
+    def v_str(v):
+        return str(to_numpy(v).round(round_to)).ljust(round_to+3)
+    return ' '.join([f'{k:>}: {v_str(v):<}' for k, v in m_dict.items()])
 
 
 def print_out(content, end='\r\n'):

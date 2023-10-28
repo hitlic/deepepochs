@@ -6,7 +6,7 @@ Code Snips：
         from sys import _getframe
         print(_getframe().f_code.co_name)
 """
-from deepepochs import Trainer, CheckCallback, rename, EpochTask, LogCallback
+from deepepochs import Trainer, rename, CheckCallback, EpochTask, LogCallback
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -58,19 +58,21 @@ def multi_metrics(preds, targets):
 
 
 checker = CheckCallback('loss', on_stage='val', mode='min', patience=2)
+logger = LogCallback()
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 
 trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=5,
-                  callbacks=checker, metrics=[acc])
+                  callbacks=[checker, logger], metrics=[acc], long_output=False)
 
 # 应用示例1：
-# progress = trainer.fit(train_dl, val_dl, metrics=[multi_metrics])
-# test_rst = trainer.test(test_dl)
+progress = trainer.fit(train_dl, val_dl, metrics=[multi_metrics])
+test_rst = trainer.test(test_dl)
+
 
 # 应用示例2：
 # t1 = EpochTask(train_dl, metrics=[acc])
 # t2 = EpochTask(val_dl, metrics=[multi_metrics], do_loss=True)
-# progress = trainer.fit(train_tasks=t1, val_tasks=t2)
+# progress = trainer.fit(train_tasks=[t1,t2], val_tasks=[t1, t2])
 # test_rst = trainer.test(tasks=t2)
 
 # 应用示例3：
