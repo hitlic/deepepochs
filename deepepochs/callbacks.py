@@ -445,7 +445,6 @@ def get_latest_running(from_dir):
         return 'no_checkpoint'
 
 
-
 class LogCallback(Callback):
     def __init__(self, log_dir='./logs'):
         super().__init__(priority=1)

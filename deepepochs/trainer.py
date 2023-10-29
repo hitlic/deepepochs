@@ -9,6 +9,7 @@ from collections import defaultdict
 from .callbacks import Callback, CallbackPool, DefaultCallback
 from torch.utils.data import DataLoader
 from datetime import datetime
+import time
 
 
 class EpochTask:

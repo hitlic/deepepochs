@@ -4,7 +4,6 @@ DeepEpochs is a simple Pytorch deep learning model training tool(see https://git
 """
 import os
 from os import path as osp
-import time
 import abc
 import torch
 import numpy as np
