@@ -144,7 +144,7 @@ def log_epoch(stages_metrics, epoch_idx, epochs, epoch_width=0, round_to=4):
 
 def info(m_dict, round_to):
     def v_str(v):
-        return str(to_numpy(v).round(round_to)).ljust(round_to+3)
+        return f'{{:.{round_to}f}}'.format(v).ljust(round_to+3)
     return ' '.join([f'{k:>}: {v_str(v):<}' for k, v in m_dict.items()])
 
 
