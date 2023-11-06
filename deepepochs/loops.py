@@ -601,13 +601,13 @@ class Optimizer:
                 self.scheduler.step()
 
     def state_dict(self):
-        if self.scheduler is None:
-            return self.opt.state_dict()
-        return self.opt.state_dict(), self.scheduler.state_dict()
+        sched_state = None if self.scheduler is None else self.scheduler.state_dict()
+        return {'opt_state': self.opt.state_dict(), 'sched_state': sched_state}
 
-    def load_state_dict(self, opt_state, sched_state=None):
+    def load_state_dict(self, state):
+        opt_state, sched_state = state['opt_state'], state['sched_state']
         self.opt.load_state_dict(opt_state)
-        if sched_state is not None:
+        if sched_state is not None and self.scheduler is not None:
             self.scheduler.load_state_dict(opt_state)
 
     def get_current_lr(self):
@@ -631,15 +631,11 @@ class Optimizers(list):
             opt.step(at, loss)
 
     def state_dict(self):
-        return [opt.state_dict for opt in self]
+        return [opt.state_dict() for opt in self]
 
-    def load_state_dict(self, opt_states, sched_states=None):
-        if sched_states is None:
-            for opt, opt_state in zip(self, opt_states):
-                opt.load_state_dict(opt_state)
-        else:
-            for opt, opt_state, sched_state in zip(self, opt_states, sched_states):
-                opt.load_state_dict(opt_state, sched_state)
+    def load_state_dict(self, states):
+        for opt, state in zip(self, states):
+            opt.load_state_dict(state)
 
     def get_current_lr(self):
         return [opt.get_current_lr() for opt in self]
