@@ -13,16 +13,16 @@ pip install deepepochs
 #### 数据要求
 
 - 训练集、验证集和测试集是`torch.utils.data.Dataloader`对象
-- `Dataloaer`中每个mini-batch数据是一个`tuple`或`list`，其中最后一个是标签
-  - 如果数据不包含标签，则请将最后一项置为`None`
+- `Dataloaer`所构造的每个mini-batch数据（`collate_fn`返回值）是一个`tuple`或`list`，其中最后一个是标签
+  - 如果训练中不需要标签，则需将最后一项置为`None`
 
 #### 指标计算
 
 - 每个指标是一个函数
-  - 它有两个参数，分别为模型的预测结果和标签
+  - 有两个参数，分别为模型预测和数据标签
   - 返回值为当前mini-batch上的指标值
 
-#### 常规训练流程应用示例
+#### 应用
 
 ```python
 from deepepochs import Trainer, CheckCallback, rename, EpochTask, LogCallback
@@ -35,7 +35,7 @@ from torch.utils.data import DataLoader, random_split
 from torchmetrics import functional as MF
 
 # datasets
-data_dir = './dataset'
+data_dir = './datasets'
 transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
 mnist_full = MNIST(data_dir, train=True, transform=transform, download=True)
 train_ds, val_ds, _ = random_split(mnist_full, [5000, 5000, 50000])
@@ -68,31 +68,39 @@ def multi_metrics(preds, targets):
         'p': MF.precision(preds, targets, task='multiclass', num_classes=10),
         'r': MF.recall(preds, targets, task='multiclass', num_classes=10)
         }
-
-
 checker = CheckCallback('loss', on_stage='val', mode='min', patience=2)
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 
 trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=5, callbacks=checker, metrics=[acc])
 
-# 应用示例1：
 progress = trainer.fit(train_dl, val_dl, metrics=[multi_metrics])
 test_rst = trainer.test(test_dl)
-
-# 应用示例2：
-# t1 = EpochTask(train_dl, metrics=[acc])
-# t2 = EpochTask(val_dl, metrics=[multi_metrics], do_loss=True)
-# progress = trainer.fit(train_tasks=t1, val_tasks=t2)
-# test_rst = trainer.test(tasks=t2)
-
-# 应用示例3：
-# t1 = EpochTask(train_dl, metrics=[acc])
-# t2 = EpochTask(val_dl, metrics=[acc, multi_metrics], do_loss=True)
-# progress = trainer.fit(train_dl, val_tasks=[t1, t2])
-# test_rst = trainer.test(tasks=[t1, t2])
 ```
 
-#### 非常规训练流程
+### 示例
+
+|序号|功能说明|代码|
+| ---- | ---- | ---- |
+|1|基本使用|`examples/1-basic.py`|
+|2|训练器、fit方法、test方法的常用参数|`examples/2-basic-params.py`|
+|3|模型性能评价指标的使用|`examples/3-metrics.py`|
+|4|Checkpoint和EarlyStop|`examples/4-checkpoint-earlystop.py`|
+|5|检测适当的学习率|`examples/5-lr-find.py`|
+|6|利用Tensorboad记录训练过程|`examples/6-logger.py`|
+|7|利用tensorboard记录与可视化超参数|`examples/7-log-hyperparameters.py`|
+|8|学习率调度|`examples/8-lr-schedule.py`|
+|9|使用多个优化器|`examples/9-multi-optimizers.py`|
+|10|在训练、验证、测试中使用多个Dataloader|`examples/10-multi-dataloaders.py`|
+|11|利用图神经网络对节点进行分类|`examples/11-node-classification.py`|
+|12|模型前向输出和梯度的可视化|`examples/12-weight-grad-visualize.py`|
+|13|自定义Callback|`examples/13-costomize-callback.py`|
+|14|通过`TrainerBase`定制`train_step`和`evaluate_step`|`examples/14-customize-steps-1.py`|
+|15|通过`EpochTask`定制`train_step`和`eval_step`和`test_step`|`examples/15-customize-steps-2.py`|
+|16|通过`EpochTask`定制`*step`|`examples/16-costomize-steps-3.py`|
+|17|内置Patch的使用|`examples/17-patchs.py`|
+|18|自定义Patch|`examples/18-customize-patch.py`|
+
+### 定制训练流程
 
 - 方法1:
     - 第1步：继承`deepepochs.Callback`类，定制满足需要的`Callback`
@@ -105,7 +113,7 @@ test_rst = trainer.test(test_dl)
             -  `**step_args`：可变参数字典，包含`do_loss`、`metrics`等参数
         - 返回值为字典
             - key：指标名称
-            - value：`DeepEpochs.PatchBase`子类对象，可用的Patch有
+            - value：`deepepochs.PatchBase`子类对象，可用的Patch有
                 - `ValuePatch`：    根据每个batch指标均值（提前计算好）和batch_size，累积计算Epoch指标均值
                 - `TensorPatch`：   保存每个batch模型预测输出及标签，根据指定指标函数累积计算Epoch指标均值
                 - `MeanPatch`：     保存每个batch指标均值，根据指定指标函数累积计算Epoch指标均值
@@ -123,6 +131,6 @@ test_rst = trainer.test(test_dl)
     - 第2步：使用新的`EpochTask`任务进行训练
         - 将`EpochTask`对象作为`Trainer.fit`中`train_tasks`和`val_tasks`的参数值，或者`Trainer.test`方法中`tasks`的参数值
 
-#### 数据流图
+### 数据流图
 
 <img src="imgs/data_flow.png" width="60%" alt="https://github.com/hitlic/deepepochs/blob/main/imgs/data_flow.png"/>

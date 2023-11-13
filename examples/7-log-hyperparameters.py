@@ -1,59 +1,39 @@
 """
-@author: hitlic
-
-Code Snips：
-    打印当前函数名：
-        from sys import _getframe
-        print(_getframe().f_code.co_name)
+利用tensorboard记录与可视化超参数
 """
-from deepepochs import Trainer, CheckCallback, rename, EpochTask, LogCallback
+from deepepochs import Trainer, CheckCallback, rename, LogCallback, metrics as dm
 import torch
 from torch import nn
 from torch.nn import functional as F
 from torchvision.datasets import MNIST
 from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
-from torchmetrics import functional as MF
+from itertools import product
 
-import random
-import numpy as np
-torch.manual_seed(1)
-np.random.seed(1)
-random.seed(1)
 
-# datasets
-data_dir = './dataset'
+data_dir = './datasets'
 transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
 mnist_full = MNIST(data_dir, train=True, transform=transform, download=True)
 train_ds, val_ds, _ = random_split(mnist_full, [5000, 5000, 50000])
 test_ds = MNIST(data_dir, train=False, transform=transform, download=True)
 
-# dataloaders
 train_dl = DataLoader(train_ds, batch_size=32)
 val_dl = DataLoader(val_ds, batch_size=32)
 test_dl = DataLoader(test_ds, batch_size=32)
 
-
-
-def acc(preds, targets):
-    return MF.accuracy(preds, targets, task='multiclass', num_classes=10)
-
 @rename('')
 def multi_metrics(preds, targets):
     return {
-        'p': MF.precision(preds, targets, task='multiclass', num_classes=10),
-        'r': MF.recall(preds, targets, task='multiclass', num_classes=10)
+        'acc': dm.accuracy(preds, targets),
+        'p': dm.precision(preds, targets),
+        'r': dm.recall(preds, targets)
         }
-
-
-from itertools import product
 
 lr_s = [0.001, 0.01]
 dim_s = [32, 64]
 dropout_s = [0.1]
 
 for lr, dim, dropout in product(lr_s, dim_s, dropout_s):
-    # 2. --- 模型
     channels, width, height = (1, 28, 28)
     model = nn.Sequential(
         nn.Flatten(),
@@ -72,10 +52,14 @@ for lr, dim, dropout in product(lr_s, dim_s, dropout_s):
     trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=5,
                     callbacks=[checker, logger],
                     metrics=[multi_metrics],
-                    hyper_params={'lr': lr, 'dim': dim, 'dropout': dropout}
+                    hyper_params={                          # 当前训练使用的超参数
+                        'lr': lr,
+                        'dim': dim,
+                        'dropout': dropout
+                        }
                     )
 
-    # 应用示例1：
     progress = trainer.fit(train_dl, val_dl)
-    test_rst = trainer.test(test_dl)
+    test_rst = trainer.test(test_dl)                        # 超参数和测试指标值会在测试之后自动写入日志
 
+logger.run_tensorboard()                                    # 启动tensorboard，在HPARAMS中查看

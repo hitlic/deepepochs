@@ -7,7 +7,19 @@ from os import path as osp
 import abc
 import torch
 import numpy as np
-from typing import Literal
+from typing import Literal, Iterable
+
+
+def listify(obj):
+    if obj is None:
+        return []
+    if isinstance(obj, list):
+        return obj
+    if isinstance(obj, str):
+        return [obj]
+    if isinstance(obj, Iterable):
+        return list(obj)
+    return [obj]
 
 
 class ddict(dict):
@@ -51,8 +63,13 @@ class ddict(dict):
 
 class TensorTuple(tuple):
     """
-    list of tensors
+    tuple of tensors
     """
+    def __new__(cls, tensors):
+        if isinstance(tensors, torch.Tensor):
+            tensors=(tensors,)
+        return tuple.__new__(cls, tensors)
+
     @property
     def device(self):
         if len(self) > 0:
@@ -312,7 +329,7 @@ def add_patch_value(self_obj, obj):
 
 
 class TensorPatch(PatchBase):
-    def __init__(self, metric, batch_preds, batch_targets=None, name=None):
+    def __init__(self, metric, batch_preds, batch_targets=None, name=None, single_batch=True):
         """
         用于累积多个mini-batch的preds和targets，计算Epoch的指标。
         例如：
@@ -328,25 +345,36 @@ class TensorPatch(PatchBase):
                 p2()  # batch 2上的指标值
                 p()   # 两个batch上的指标值
         Args:
-            metric: 计算指标的函数（或其他适当的可调用对象）
-            batch_pres: 一个mini_batch的模型预测
-            batch_targets: 一个mini_batch的标签（当指标计算不需要标签时为空值）
-            name: 显示在输出日志中的名称
+            metric:         计算指标的函数（或其他适当的可调用对象）
+            batch_pres:     一个mini_batch的模型预测
+            batch_targets:  一个mini_batch的标签（当指标计算不需要标签时为空值）
+            name:           显示在输出日志中的名称
+            single_batch:   batch_preds, batch_targets中包含的是单个还是多个batch的Patch
         """
         super().__init__(name)
         assert callable(metric), '指标`metric`应当是一个可调用对象！'
         self.metric = metric
-        self.batch_preds = list(batch_preds) if isinstance(batch_preds, (list, tuple)) else [batch_preds]
+        if single_batch: # 单个mini-batch的模型预测输出
+            # 应对模型有多个输出的情况
+            self.batch_preds = [batch_preds] if isinstance(batch_preds, (list, tuple)) else [[batch_preds]]
+        else:            # 多个mini-batch模型预测输出
+            self.batch_preds = batch_preds
         if batch_targets is None:
             self.batch_targets = None
         else:
-            self.batch_targets = list(batch_targets) if isinstance(batch_targets, (list, tuple)) else [batch_targets]
+            if single_batch: # 单个mini-batch的标签数据
+                # 应对模型有多个标签的情况
+                self.batch_targets = [batch_targets] if isinstance(batch_targets, (list, tuple)) else [[batch_targets]]
+            else:            # 多个mini-batch的标签数据
+                self.batch_targets = batch_targets
 
-        self.concat = torch.concat if isinstance(self.batch_preds[0], torch.Tensor) else np.concatenate
+        self.concat = torch.concat if isinstance(self.batch_preds[0][0], torch.Tensor) else np.concatenate
 
     def forward(self):
-        preds = self.concat(self.batch_preds, 0)
-        targets = None if self.batch_targets is None else self.concat(self.batch_targets, 0)
+        preds = [self.concat(bpreds, 0) for bpreds in zip(*self.batch_preds)]
+        targets = None if self.batch_targets is None else [self.concat(btargets, 0) for btargets in zip(*self.batch_targets)]
+        preds = preds[0] if len(preds) == 1 else preds
+        targets = targets[0] if len(targets) == 1 else targets
         return self.metric(preds, targets)
 
     def add(self, obj):
@@ -357,7 +385,7 @@ class TensorPatch(PatchBase):
             new_targets = self.batch_targets + obj.batch_targets
         else:
             new_targets = None
-        return self.__class__(self.metric, new_preds, new_targets, self.name)
+        return self.__class__(self.metric, new_preds, new_targets, self.name, single_batch=False)
 
 
 class MeanPatch(PatchBase):
@@ -422,21 +450,14 @@ class ConfusionPatch(PatchBase):
         self.average = average
 
         if batch_preds.shape[1] == 1:
-            num_classes = None
+            num_classes = int((max(batch_targets) + 1).item())
         else:
             num_classes = batch_preds.shape[1]
         self.num_classes = num_classes
-        self.confusion_matrix = self._confusion_matrix(batch_preds, batch_targets)
-
-    def _confusion_matrix(self, preds, targets):
-        preds = preds.argmax(dim=1)
-        cm = torch.zeros([self.num_classes, self.num_classes], dtype=preds.dtype, device=preds.device)
-        one = torch.tensor([1], dtype=preds.dtype, device=preds.device)
-        return cm.index_put_((preds, targets), one, accumulate=True)
-
+        self.confusion_matrix = confusion_matrix(batch_preds, batch_targets, num_classes)
 
     def forward(self):
-        c_mats = self.get_c_mats()
+        c_mats = get_cmats(self.confusion_matrix)
         weights = [mat.TP+mat.FN for mat in c_mats]
         w_sum = sum(weights)
         weights = [w/w_sum for w in weights]
@@ -449,26 +470,7 @@ class ConfusionPatch(PatchBase):
         self.confusion_matrix += obj.confusion_matrix
         return self
 
-    def get_c_mats(self):
-        if self.confusion_matrix.shape[0] == 2:
-            c_mat = ddict({
-                'TP': self.confusion_matrix[0][0],
-                'FN': self.confusion_matrix[0][1],
-                'FP': self.confusion_matrix[1][0],
-                'TN': self.confusion_matrix[1][1]
-            })
-            return [c_mat]
-        else:
-            return [ddict(self.get_cmat_i(i)) for i in range(self.confusion_matrix.shape[0])]
-
-    def get_cmat_i(self, c_id):
-        TP = self.confusion_matrix[c_id, c_id]
-        FN = self.confusion_matrix[c_id].sum() - TP
-        FP = self.confusion_matrix[:, c_id].sum() - TP
-        TN = self.confusion_matrix.sum() - TP - FN - FP
-        return ddict({'TP': TP, 'FN': FN, 'FP': FP, 'TN': TN})
-
-    def accuracy(self, _1, _2):
+    def accuracy(self, c_mats, weights):
         return sum(self.confusion_matrix[i, i] for i in range(self.num_classes))/self.confusion_matrix.sum()
 
     def precision(self, c_mats, weights):
@@ -503,6 +505,45 @@ class ConfusionPatch(PatchBase):
 
     def f1(self, c_mats, weights):
         return self._fbeta(c_mats, weights, 1)
+
+def confusion_matrix(preds, targets, num_classes):
+    """
+    Args:
+        preds:      预测向量，可为binary或多维概率分布
+        targets:    标签向量，可为one-hot或非one-hot的
+        num_class:  类别数量
+    """
+    if (preds.dim()==1 or preds.shape[-1]==1) and num_classes==2:  # 当预测为binary时
+        preds = preds.unsqueeze(-1) if preds.dim()==1 else preds
+        preds = torch.concat([1-preds, preds], dim=-1)
+    preds = preds.argmax(dim=-1).flatten()
+
+    if targets.dim() > 1 and targets.shape[-1] > 1: # 当targets为one-hot时
+        targets = targets.argmax(dim=1)
+    else:
+        targets = targets.flatten().int()
+    cm = torch.zeros([num_classes, num_classes], dtype=preds.dtype, device=preds.device)
+    one = torch.tensor([1], dtype=preds.dtype, device=preds.device)
+    return cm.index_put_((targets, preds), one, accumulate=True)
+
+def get_cmats(c_mat):
+    if c_mat.shape[0] == 2:
+        c_mat = ddict({
+            'TP': c_mat[0][0],
+            'FN': c_mat[0][1],
+            'FP': c_mat[1][0],
+            'TN': c_mat[1][1]
+        })
+        return [c_mat]
+    else:
+        return [ddict(get_cmat_i(i, c_mat)) for i in range(c_mat.shape[0])]
+
+def get_cmat_i(c_id, c_mat):
+    TP = c_mat[c_id, c_id]
+    FN = c_mat[c_id].sum() - TP
+    FP = c_mat[:, c_id].sum() - TP
+    TN = c_mat.sum() - TP - FN - FP
+    return ddict({'TP': TP, 'FN': FN, 'FP': FP, 'TN': TN})
 
 def precision_fn(c_mat):
     if c_mat.TP + c_mat.FP == 0:
@@ -610,8 +651,12 @@ class Optimizer:
         if sched_state is not None and self.scheduler is not None:
             self.scheduler.load_state_dict(opt_state)
 
+    @property
+    def param_groups(self):
+        return self.opt.param_groups
+
     def get_current_lr(self):
-        for param_group in self.opt.param_groups:
+        for param_group in self.param_groups:
             return param_group['lr']
 
 

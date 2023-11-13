@@ -22,7 +22,7 @@ np.random.seed(1)
 random.seed(1)
 
 # datasets
-data_dir = './dataset'
+data_dir = './datasets'
 transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
 mnist_full = MNIST(data_dir, train=True, transform=transform, download=True)
 train_ds, val_ds, _ = random_split(mnist_full, [5000, 5000, 50000])
@@ -61,11 +61,11 @@ checker = CheckCallback('loss', on_stage='val', mode='min', patience=2)
 logger = LogCallback()
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 
-trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=5,
+trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=6,
                   callbacks=[checker, logger], metrics=[acc], long_output=False)
 
 # 应用示例1：
-progress = trainer.fit(train_dl, val_dl, metrics=[multi_metrics])
+progress = trainer.fit(train_dl, val_dl, metrics=[multi_metrics], val_freq=2)
 test_rst = trainer.test(test_dl)
 
 

@@ -6,7 +6,7 @@ import torch
 from torch.optim import Adam
 from .loops import *
 from collections import defaultdict
-from .callbacks import Callback, CallbackPool, DefaultCallback
+from .callbacks import Callback, CallbackPool, DefaultCallback, CallbackException
 from torch.utils.data import DataLoader
 from datetime import datetime
 import time
@@ -20,11 +20,11 @@ class EpochTask:
             dataloader: pytorch Dataloader
             metrics:    指标函数列表
             do_loss:    验证和测试中是否计算据损失
-            args:       其他需要传递给`step`、`train_step`、`val_step`、`test_step`和`evaluate`方法的参数
+            step_args:  其他需要传递给`step`、`train_step`、`val_step`、`test_step`和`evaluate`方法的参数
         """
         self.dataloader = dataloader
         self.batchs = len(dataloader)
-        self.metrics = metrics
+        self.metrics = [] if metrics is None else metrics
         self.do_loss = do_loss
         self.trainer = None
         self.stage = None
@@ -39,10 +39,18 @@ class EpochTask:
 
     def __call__(self):
         phase = 'train' if self.stage=='train' else 'evaluate'
+
         if self.stage == 'train':
             self.model.train()
         else:
             self.model.eval()
+
+        if self.stage == 'train':
+            more_metrics = self.train_metrics
+        elif self.stage == 'val':
+            more_metrics = self.val_metrics
+        else:
+            more_metrics = self.test_metrics
 
         with torch.no_grad():
             self.callbacks.trigger(f'before_{self.stage}_epoch', trainer=self, task=self)
@@ -64,9 +72,9 @@ class EpochTask:
                 # 运行mini-batch的`*step`方法
                 if self.stage == 'train':
                     with torch.enable_grad():
-                        m_value = step_method(batch_x, batch_y, metrics=self.metrics, do_loss=True, **self.step_args)
+                        m_value = step_method(batch_x, batch_y, metrics=self.metrics+more_metrics, do_loss=True, **self.step_args)
                 else:
-                    m_value = step_method(batch_x, batch_y, metrics=self.metrics, do_loss=self.do_loss, **self.step_args)
+                    m_value = step_method(batch_x, batch_y, metrics=self.metrics+more_metrics, do_loss=self.do_loss, **self.step_args)
 
                 metrics_values.append(m_value)
 
@@ -96,7 +104,7 @@ class TrainerBase:
                                             - int、str表示加载相应ID的Checkpoint
             running_id [int, str, None]: 当前训练的运行编号，用于指定日志和checkpoint的文件夹名
             hyper_params [dict, None]:   调参所关注的重要超参数，用于写入日志文件辅助调参
-            long_output [bool]:          指标输出为长格式（7位小说）还是短格式（4位小数）
+            long_output [bool]:          指标输出为长格式（7位小数）还是短格式（4位小数）
         """
         # 配置损失函数
         if loss is None:
@@ -194,6 +202,8 @@ class TrainerBase:
         train_metrics = metrics + [m for m in train_metrics if m not in metrics]
         val_metrics = [] if val_metrics is None else val_metrics
         val_metrics = metrics + [m for m in val_metrics if m not in metrics]
+        self.train_metrics = train_metrics
+        self.val_metrics = val_metrics
 
         # 构建训练任务
         train_tasks = [] if train_tasks is None else train_tasks
@@ -242,6 +252,8 @@ class TrainerBase:
             print('\n', e, sep='')
         except LoopException as e:
             print('\t', e, sep='')
+        except CallbackException as e:
+            print('\t', e, sep='')
 
         self.callbacks.trigger('after_fit', trainer=self)
         return {k: concat_dicts(v) for k, v in progress.items()}
@@ -263,6 +275,7 @@ class TrainerBase:
         metrics = [] if metrics is None else metrics
         metrics = [metrics] if callable(metrics) else list(metrics)
         metrics = self.general_metrics + metrics  # 使用Trainer.__init__中定义的通用指标
+        self.test_metrics = metrics
 
         # 构建测试任务
         test_tasks = [] if tasks is None else tasks
