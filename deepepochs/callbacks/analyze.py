@@ -104,7 +104,12 @@ class AnalyzeCallback(Callback):
     def on_before_fit(self, trainer, epochs):
         log_dir = osp.join(self.log_dir, trainer.running_id)
         check_path(log_dir)
-        self.logger = SummaryWriter(log_dir=log_dir)
+        logger = getattr(trainer, 'logger', None)
+        if logger is None:
+            self.logger = SummaryWriter(log_dir=log_dir)
+            trainer.logger = self.logger
+        else:
+            self.logger = logger
 
         def output_stats(hook, module, inputs, outputs):
             if isinstance(outputs, tuple):  # backward hook

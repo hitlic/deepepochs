@@ -4,7 +4,7 @@ TODO:
     混合精度
     分布式
 """
-__version__ = '0.4.11'
+__version__ = '0.4.12'
 
 from .loops import *
 from .trainer import Trainer, TrainerBase, EpochTask

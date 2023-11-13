@@ -44,7 +44,12 @@ class LogCallback(Callback):
     def on_before_fit(self, trainer, epochs):
         log_dir = osp.join(self.log_dir, trainer.running_id)
         check_path(log_dir)
-        self.logger = SummaryWriter(log_dir=log_dir)
+        logger = getattr(trainer, 'logger', None)
+        if logger is None:
+            self.logger = SummaryWriter(log_dir=log_dir)
+            trainer.logger = self.logger
+        else:
+            self.logger = logger
 
     def on_before_train_batch(self, trainer, batch_x, batch_y, batch_idx):
         """保存模型结构图"""
