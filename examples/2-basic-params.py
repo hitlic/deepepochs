@@ -9,6 +9,7 @@ from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
 from deepepochs import Trainer
 
+
 # 1. --- datasets
 data_dir = './datasets'
 transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])

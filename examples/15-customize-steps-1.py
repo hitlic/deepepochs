@@ -9,6 +9,7 @@ from torchvision.datasets import MNIST
 from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
 
+
 # 通过Trainer定制训练和验证步
 class Trainer(TrainerBase):
     def train_step(self, batch_x, batch_y, **step_args):

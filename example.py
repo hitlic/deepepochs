@@ -1,10 +1,5 @@
 """
 @author: hitlic
-
-Code Snips：
-    打印当前函数名：
-        from sys import _getframe
-        print(_getframe().f_code.co_name)
 """
 from deepepochs import Trainer, rename, CheckCallback, EpochTask, LogCallback
 import torch
