@@ -85,7 +85,7 @@ test_rst = trainer.test(test_dl)
 
 |序号|功能说明|代码|
 | ---- | ---- | ---- |
-|1|基本使用|`examples/1-basic.py`|
+|1|基本使用|[examples/1-basic.py](examples/1-basic.py)|
 |2|trainer、fit方法、test方法的常用参数|`examples/2-basic-params.py`|
 |3|模型性能评价指标的使用|`examples/3-metrics.py`|
 |4|Checkpoint和EarlyStop|`examples/4-checkpoint-earlystop.py`|
