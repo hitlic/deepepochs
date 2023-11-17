@@ -20,6 +20,8 @@ class Callback:
                 on_before_train_epochs   # 多个训练任务
                     on_before_train_epoch
                         on_before_train_batch
+                            on_before_train_forward
+                            on_after_train_forward
                             on_before_backward
                             on_after_backward
                         on_after_train_batch
@@ -30,6 +32,8 @@ class Callback:
                 on_before_val_epochs     # 多个验证任务
                     on_before_val_epoch
                         on_before_val_batch
+                            on_before_val_forward
+                            on_after_val_forward
                         on_after_val_batch
                         ...
                     on_after_val_epoch
@@ -41,6 +45,8 @@ class Callback:
         on_before_test_epochs
             on_before_test_epoch
                 on_before_test_batch
+                    on_before_test_forward
+                    on_after_test_forward
                 on_after_test_batch
                 ...
             on_after_test_epoch
@@ -96,13 +102,26 @@ class Callback:
             batch_idx: 当前训练batch index
         """
 
-    def on_before_backward(self, trainer):
+    def on_before_train_forward(self, trainer):
+        """
+        Args:
+            trainer:   Trainer
+        """
+
+    def on_after_train_forward(self, trainer, model_out):
+        """
+        Args:
+            trainer:    Trainer
+            model_out:  模型前向预测输出
+        """
+
+    def on_before_backward(self, trainer, loss):
         """
         Args:
             trainer:  Trainer
         """
 
-    def on_after_backward(self, trainer):
+    def on_after_backward(self, trainer, loss):
         """
         Args:
             trainer:  Trainer
@@ -155,6 +174,19 @@ class Callback:
             batch_x:   当前验证batch模型的输入数据
             batch_y:   当前验证batch的标签
             batch_idx: 当前验证batch index
+        """
+
+    def on_before_val_forward(self, trainer):
+        """
+        Args:
+            trainer:   Trainer
+        """
+
+    def on_after_val_forward(self, trainer, model_out):
+        """
+        Args:
+            trainer:    Trainer
+            model_out:  模型前向预测输出
         """
 
     def on_after_val_batch(self, trainer, metrics, batch_idx):
@@ -218,6 +250,19 @@ class Callback:
             batch_idx: 当前测试batch index
         """
 
+    def on_before_test_forward(self, trainer):
+        """
+        Args:
+            trainer:   Trainer
+        """
+
+    def on_after_test_forward(self, trainer, model_out):
+        """
+        Args:
+            trainer:    Trainer
+            model_out:  模型前向预测输出
+        """
+
     def on_after_test_batch(self, trainer, metrics, batch_idx):
         """
         Args:
@@ -270,16 +315,18 @@ class CallbackPool(list):
 
 
 class DefaultCallback(Callback):
-    def __init__(self, long_output):
+    def __init__(self, long_output, log_batch):
         """
         默认启用的Callback，实现功能：
             指标输出
             学习率调度
         Args:
             long_output: 指标输出为长格式（7位小说）还是短格式（4位小数）
+            bog_batch:   是否输出batch的指标值
         """
         super().__init__(priority=0)
         self.round_to = 7 if long_output else 4
+        self.log_batch = log_batch
 
     def on_before_fit(self, trainer, epochs):
         self.total_epochs = epochs
@@ -296,11 +343,13 @@ class DefaultCallback(Callback):
 
     def on_after_train_batch(self, trainer, metrics, batch_idx):
         self.global_train_batch_idx += 1
-        log_batch(metrics, self.epoch_idx+1, self.total_epochs, self.global_train_batch_idx, self.total_train_batchs, 'TRAIN', self.epoch_width, self.batch_width, self.round_to)
+        if self.log_batch:
+            log_batch(metrics, self.epoch_idx+1, self.total_epochs, self.global_train_batch_idx, self.total_train_batchs, 'TRAIN', self.epoch_width, self.batch_width, self.round_to)
 
     def on_after_val_batch(self, trainer, metrics, batch_idx):
         self.global_val_batch_idx += 1
-        log_batch(metrics, self.epoch_idx+1, self.total_epochs, self.global_val_batch_idx, self.total_val_batchs, 'VAL', self.epoch_width, self.batch_width, self.round_to)
+        if self.log_batch:
+            log_batch(metrics, self.epoch_idx+1, self.total_epochs, self.global_val_batch_idx, self.total_val_batchs, 'VAL', self.epoch_width, self.batch_width, self.round_to)
 
     def on_after_epoch(self, trainer, train_tasks, val_tasks, train_metrics, val_metrics, epoch_idx):
         if val_metrics:
@@ -327,4 +376,5 @@ class DefaultCallback(Callback):
 
     def on_after_test_batch(self, trainer, metrics, batch_idx):
         self.global_test_batch_idx += 1
-        log_batch(metrics, self.global_test_epoch_idx, self.total_test_epochs, self.global_test_batch_idx, self.total_test_batchs, 'TEST', self.epoch_width, self.batch_width, self.round_to)
+        if self.log_batch:
+            log_batch(metrics, self.global_test_epoch_idx, self.total_test_epochs, self.global_test_batch_idx, self.total_test_batchs, 'TEST', self.epoch_width, self.batch_width, self.round_to)

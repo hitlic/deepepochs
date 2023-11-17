@@ -8,7 +8,8 @@
     - `ValuePatch`：    根据每个mini-batch指标均值（提前计算好）和batch_size，累积计算Epoch指标均值
     - `TensorPatch`：   保存每个mini-batch的(preds, targets)，Epoch指标利用所有mini-batch的(preds, targets)数据重新计算
     - `MeanPatch`：     保存每个batch指标均值，Epoch指标值利用每个mini-batch的均值计算
-        - 如果epoch指标值可以利用mini-batch指标值计算，则`MeanPatch`与`TensorPatch`结果相同，但占用存储空间更小、运算速度更快
+        - 一般`MeanPatch`与`TensorPatch`结果相同，但占用存储空间更小、运算速度更快
+        - 不可用于计算'precision', 'recall', 'f1', 'fbeta'等指标
     - `ConfusionPatch`：用于计算基于混淆矩阵的指标，包括'accuracy', 'precision', 'recall', 'f1', 'fbeta'等
 5. 在定制训练、验证或测试步时，可以利用这四种Patch作为返回字典的值。
 """
@@ -25,25 +26,16 @@ from torch.utils.data import DataLoader, random_split
 class MyTask(EpochTask):
     def step(self, batch_x, batch_y, **step_args):
         model_out = self.model(*batch_x)
+        loss = self.loss(model_out, batch_y)
 
-        loss = None
-        if self.stage == 'train':
-            self.opt.zero_grad()
-            loss = self.loss(model_out, batch_y)
-            loss.backward()
-            self.opt.step()
-        elif step_args.get('do_loss', False):
-            loss = self.loss(model_out, batch_y)
-
+        results = {}
         if loss is not None:
-            results = {'loss': ValuePatch(loss.detach(), batch_size=len(model_out))}    # 1. 利用ValuePatch返回损失值
-        else:
-            results = {}
+            results = {'loss': ValuePatch(loss.detach(), batch_size=len(model_out))}        # 1. 利用ValuePatch返回损失值
 
         for m in step_args.get('metrics', list()):
-            results['tf1'] = TensorPatch(m, model_out, batch_y)                         # 2. 利用TensorPatch返回计算f1指标的数据
-            results['mf1'] = MeanPatch(m, model_out, batch_y)                           # 3. 利用MeanPatch返回计算f1指标的数据
-        results['cm'] = ConfusionPatch(model_out, batch_y, metrics=['f1'], name='C.')   # 4. 利用ConfusionPatch返回计算f1指标的数据
+            results['tacc'] = TensorPatch(m, model_out, batch_y)                            # 2. 利用TensorPatch返回计算accuracy指标的数据
+            results['macc'] = MeanPatch(m, model_out, batch_y)                              # 3. 利用MeanPatch返回计算accuracy指标的数据
+        results['cm'] = ConfusionPatch(model_out, batch_y, metrics=['accuracy'], name='C.') # 4. 利用ConfusionPatch返回计算accuracy指标的数据
         return results
 
 
@@ -70,7 +62,7 @@ model = nn.Sequential(
 )
 
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
-trainer = Trainer(model, F.cross_entropy, opt, epochs=2, metrics=[mm.f1])
+trainer = Trainer(model, F.cross_entropy, opt, epochs=2, metrics=[mm.accuracy])
 
 train_task = MyTask(train_dl)
 val_task = MyTask(val_dl)

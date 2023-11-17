@@ -1,5 +1,6 @@
 from .callback import Callback, CallbackException
-from ..loops import Optimizers, StopLoopException
+from ..loops import StopLoopException
+from ..optimizer import Optimizers
 from matplotlib import pyplot as plt
 
 

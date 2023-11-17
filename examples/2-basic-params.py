@@ -42,8 +42,9 @@ trainer = Trainer(
     loss=F.cross_entropy,       # 损失函数，            默认直接返回模型预测（要求模型预测输出为损失）
     opt=opt,                    # 优化器（或优化器列表）， 默认使用学习率为0.001的Adam优化器
     epochs=2,                   # 训练迭代次数，         默认取值1000
-    device='cpu',               # 加速设备，cpu或cuda ， 默认情况下如果存在GPU会自动使用GPU训练
-    long_output=False           # 输出为长格式（7位小数）还是短格式（4位小数）
+    device='cpu',               # 加速设备，cpu、cuda 或 mps，默认情况下如果存在GPU或mps设备会自动使用
+    long_output=False,          # 输出为长格式（7位小数）还是短格式（4位小数）
+    log_batch=True              # 训练过程是，是否每个mini-batch都输出一次指标值
     )
 
 trainer.fit(

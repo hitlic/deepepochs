@@ -22,22 +22,10 @@ class MyTask(EpochTask):
         注意：本方法返回一个字典，键为指标名，值为封装了数据和指标函数的PatchBase子类对象。
         """
         model_out = self.model(*batch_x)
-
-        loss = None
-        if self.stage == 'train':               # 训练（train）step中优化模型
-            self.opt.zero_grad()
-            loss = self.loss(model_out, batch_y)
-            loss.backward()
-            self.opt.step()
-        elif step_args.get('do_loss', False):  # 验证（val）和测试（test）step中，do_loss为True则计算损失
-            loss = self.loss(model_out, batch_y)
+        loss = self.loss(model_out, batch_y)
 
         # 记录损失值
-        if loss is not None:
-            results = {'loss': ValuePatch(loss.detach(), batch_size=len(model_out))}
-        else:
-            results = {}
-
+        results = {} if loss is None else {'loss': ValuePatch(loss, batch_size=len(model_out))}
         # 记录其他指标值
         for m in step_args.get('metrics', list()):
             results[m.__name__] = TensorPatch(m, model_out, batch_y)
@@ -69,7 +57,7 @@ model = nn.Sequential(
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 
 def m_(preds, targets):
-    avg = 'micro'
+    avg = 'macro'
     cmat = mm.confusion_matrix(preds, targets, 10)
     return {
         'acc': mm.accuracy(conf_mat=cmat),
@@ -81,7 +69,7 @@ def m_(preds, targets):
 trainer = Trainer(model, F.cross_entropy, opt, epochs=2, metrics=[m_])  # 训练器
 
 train_task = MyTask(train_dl)
-val_task = MyTask(val_dl)
+val_task = MyTask(val_dl, do_loss=False)
 test_task = MyTask(test_dl)
 
 trainer.fit(train_tasks=train_task, val_tasks=val_task)                 # 使用Task

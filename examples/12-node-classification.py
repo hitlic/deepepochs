@@ -55,6 +55,6 @@ model = GCN(feat_dim, 16, dataset.num_classes)
 
 opt = torch.optim.Adam(model.parameters(), lr=0.01)
 
-trainer = Trainer(model, loss, opt, 100, metrics=[acc])
+trainer = Trainer(model, loss, opt, 100, metrics=[acc], device='cpu')  # DGL暂不支持mps
 trainer.fit(train_dl, val_dl)
 trainer.test(test_dl)

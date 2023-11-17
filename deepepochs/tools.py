@@ -7,7 +7,10 @@ from collections import deque
 from itertools import chain
 import torch
 from matplotlib import pyplot as plt
+from matplotlib.pyplot import MultipleLocator
 from queue import PriorityQueue
+import numpy as np
+import itertools
 from .loops import TensorTuple
 
 
@@ -89,8 +92,8 @@ class SeriesPlots:
 
         for i, (ys, vs, axs_lns) in enumerate(zip(self.ys, values, self.graphs)):
             if isinstance(vs, (list, tuple)):
-                self.max_ys[i] = max(self.max_ys[i], max(vs))
-                self.min_ys[i] = min(self.min_ys[i], min(vs))
+                self.max_ys[i] = max(self.max_ys[i], max(vs))  # pylint: disable=W3301
+                self.min_ys[i] = min(self.min_ys[i], min(vs))  # pylint: disable=W3301
                 for y, v, (ax, ln) in zip(ys, vs, axs_lns):
                     y.append(v)
                     ln.set_xdata(self.x)
@@ -125,7 +128,7 @@ def Moveing(length=10):
 
 class TopKQueue(PriorityQueue):
     """
-    能够保存最大值的优先队列
+    能够保存最大k个值的优先队列
     """
     def __init__(self, k: int = 0):
         super().__init__(maxsize=k)
@@ -164,20 +167,13 @@ def batches(inputs, batch_size):
             break
 
 
-def rename(newname):
-    def decorator(f):
-        f.__name__ = newname
-        return f
-    return decorator
-
-
 def groupby_apply(values: torch.Tensor, keys: torch.Tensor, reduction: str = "mean"):
     """
     Groupby apply for torch tensors.
     Example: 
         Code:
-            x = torch.FloatTensor([[1,1], [2,2],[3,3],[4,4],[5,5]])
-            g = torch.LongTensor([0,0,1,1,1])
+            x = torch.FloatTensor([[1, 1], [2, 2], [3, 3], [4, 4], [5, 5]])
+            g = torch.LongTensor([0, 0, 1, 1, 1])
             print(groupby_apply(x, g, 'mean'))
         Output:
             tensor([[1.5000, 1.5000],
@@ -199,3 +195,49 @@ def groupby_apply(values: torch.Tensor, keys: torch.Tensor, reduction: str = "me
     _, counts = keys.unique(return_counts=True)
     reduced = torch.stack([reduce(item, dim=0) for item in torch.split_with_sizes(values, tuple(counts))])
     return reduced
+
+
+def plot_confusion(c_matrix, class_num, class_names=None,
+                   norm_dec=2, cmap='Blues', info=''):
+    """
+    画出混淆矩阵。
+    Args:
+        c_matrix: 混淆矩阵
+        class_num: 类别数量
+        class_names: 各类名称，可选参数
+        norm_dec: 标准化保留小数点位数
+        cmap: 配色方案
+        info: 显示在图像标题中的其他信息
+    """
+    title = 'Confusion matrix'
+
+    data_size = c_matrix.sum()
+    c_matrix = c_matrix.astype('int')
+
+    fig = plt.figure()
+
+    plt.imshow(c_matrix, interpolation='nearest', cmap=cmap)
+    plt.title(f'{title} - ({data_size}) \n{info}')
+    if class_names and len(class_names) == class_num:
+        tick_marks = np.arange(class_num)
+        plt.xticks(tick_marks, class_names, rotation=90)
+        plt.yticks(tick_marks, class_names, rotation=0)
+
+    thresh = c_matrix.max() / 2.
+    for i, j in itertools.product(range(c_matrix.shape[0]), range(c_matrix.shape[1])):
+        coeff = f'{c_matrix[i, j]}'
+        plt.text(j, i, coeff, horizontalalignment="center", verticalalignment="center",
+                 color="yellow" if c_matrix[i, j] > thresh else "green")
+
+    ax = fig.gca()
+    ax.set_ylim(class_num-.5, -.5)
+
+    ax.xaxis.set_major_locator(MultipleLocator(1))
+    ax.yaxis.set_major_locator(MultipleLocator(1))
+
+    plt.ylabel('Target')
+    plt.xlabel('Prediction')
+    plt.grid(False)
+    # plt.tight_layout()
+    fig.subplots_adjust(bottom=0.15)
+    return fig

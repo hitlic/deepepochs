@@ -62,12 +62,12 @@ def multi_metrics(preds, targets):
 
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 
-trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=10,
+trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=2,
                   metrics=[acc],                        # 1. 在训练、验证和测试中使用的指标
                   )
 
 progress = trainer.fit(train_dl, val_dl,
-                        # metrics=[multi_metrics],      # 2. 在训练和验证中使用的指标
+                        metrics=[multi_metrics],      # 2. 在训练和验证中使用的指标
                         train_metrics=[multi_metrics],  # 3. 仅在训练中使用的指标
                         val_metrics=[multi_metrics]     # 4. 仅在验证中使用的指标
                         )

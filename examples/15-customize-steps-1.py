@@ -1,7 +1,7 @@
 """
-通过EpochTask定制train_step和eval_step和test_step
+通过TrainerBase定制train_step和evaluate_step
 """
-from deepepochs import Trainer, ValuePatch, TensorPatch, EpochTask, metrics as mm
+from deepepochs import TrainerBase, ValuePatch, TensorPatch, metrics as mm
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -9,27 +9,23 @@ from torchvision.datasets import MNIST
 from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
 
-
-# 通过EpochTask定制训练、验证和测试步
-class MyTask(EpochTask):
+# 通过Trainer定制训练和验证步
+class Trainer(TrainerBase):
     def train_step(self, batch_x, batch_y, **step_args):
         """
         注意：本方法返回一个字典，键为指标名，值为封装了数据和指标函数的PatchBase子类对象。
         """
-        self.opt.zero_grad()
         model_out = self.model(*batch_x)
         loss = self.loss(model_out, batch_y)
-        loss.backward()
-        self.opt.step()
 
         # 记录损失值
-        results = {'loss': ValuePatch(loss.detach(), len(model_out))}
+        results = {'loss': ValuePatch(loss, len(model_out))}
         # 记录其他指标值
         for m in step_args.get('metrics', list()):
             results[m.__name__] = TensorPatch(m, model_out, batch_y)
         return results
 
-    def val_step(self, batch_x, batch_y, **step_args):
+    def evaluate_step(self, batch_x, batch_y, **step_args):
         """
         注意：本方法返回一个字典，键为指标名，值为封装了数据和指标函数的PatchBase子类对象。
         """
@@ -37,18 +33,12 @@ class MyTask(EpochTask):
         loss = self.loss(model_out, batch_y)
 
         # 记录损失值
-        if step_args.get('do_loss', False):  # 如果存在do_loss参数，且值为True则计算损失
-            results = {'loss': ValuePatch(loss.detach(), len(model_out))}
-        else:
-            results = {}
-
+        results = {} if loss is None else  {'loss': ValuePatch(loss, len(model_out))}
         # 记录其他指标值
         for m in step_args.get('metrics', list()):
             results[m.__name__] = TensorPatch(m, model_out, batch_y)
         return results
 
-    def test_step(self, batch_x, batch_y, **step_args):
-        return self.val_step(batch_x, batch_y, **step_args)
 
 
 data_dir = './datasets'
@@ -86,12 +76,6 @@ def m_(preds, targets):
         'f1': mm.f1(conf_mat=cmat, average=avg),
     }
 
-
 trainer = Trainer(model, F.cross_entropy, opt, epochs=2, metrics=[m_])  # 训练器
-
-train_task = MyTask(train_dl)
-val_task = MyTask(val_dl)
-test_task = MyTask(test_dl)
-
-trainer.fit(train_tasks=train_task, val_tasks=val_task)                 # 训练、验证
-trainer.test(tasks=test_task)                                           # 测试
+trainer.fit(train_dl, val_dl, do_val_loss=False)                        # 训练、验证
+trainer.test(test_dl, do_loss=False)                                    # 测试

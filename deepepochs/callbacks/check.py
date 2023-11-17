@@ -71,13 +71,12 @@ class CheckCallback(Callback):
             except Exception as e:
                 print(f'loading failed! {e}\nstarting training with random parameters!')
 
-    def on_after_train_epochs(self, trainer, tasks, metrics, epoch_idx):
-        if self.on_stage == 'train':
-            self.do_check(trainer, metrics)
-
-    def on_after_val_epochs(self, trainer, tasks, metrics, epoch_idx):
+    def on_after_epoch(self, trainer, train_tasks, val_tasks, train_metrics, val_metrics, epoch_idx):
         if self.on_stage == 'val':
-            self.do_check(trainer, metrics)
+            if val_tasks and (epoch_idx+1)%val_tasks[0].val_freq==0:
+                self.do_check(trainer, val_metrics)
+        else:
+            self.do_check(trainer, train_metrics)
 
     def do_check(self, trainer, metrics):
         if self.monitor in metrics:
@@ -124,4 +123,4 @@ def get_latest_running(from_dir):
         file_list = sorted(dir_list, key=lambda f: osp.getctime(osp.join(from_dir, f)))
         return file_list[-1]
     except Exception:
-        return 'no_checkpoint'
+        return 'NULL_checkpoint'

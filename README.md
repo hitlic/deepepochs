@@ -20,19 +20,20 @@ pip install deepepochs
 
 - 每个指标是一个函数
   - 有两个参数，分别为模型预测和数据标签
-  - 返回值为当前mini-batch上的指标值
+  - 返回值为当前mini-batch上计算的指标值或字典
+  - 支持基于`torchmetrics.functional`定义指标
 
 #### 应用
 
 ```python
-from deepepochs import Trainer, CheckCallback, rename, EpochTask, LogCallback
+from deepepochs import Trainer, CheckCallback, rename
+from deepepochs import metrics as dm
 import torch
 from torch import nn
 from torch.nn import functional as F
 from torchvision.datasets import MNIST
 from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
-from torchmetrics import functional as MF
 
 # datasets
 data_dir = './datasets'
@@ -59,20 +60,23 @@ model = nn.Sequential(
     nn.Linear(64, 10)
 )
 
+# metrics
 def acc(preds, targets):
-    return MF.accuracy(preds, targets, task='multiclass', num_classes=10)
+    return dm.accuracy(preds, targets)
 
 @rename('')
 def multi_metrics(preds, targets):
     return {
-        'p': MF.precision(preds, targets, task='multiclass', num_classes=10),
-        'r': MF.recall(preds, targets, task='multiclass', num_classes=10)
+        'p': dm.precision(preds, targets, average='macro'),
+        'r': dm.recall(preds, targets, average='macro')
         }
+
+# checkpoint and ealy stop
 checker = CheckCallback('loss', on_stage='val', mode='min', patience=2)
+# optimizer
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 
 trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=5, callbacks=checker, metrics=[acc])
-
 progress = trainer.fit(train_dl, val_dl, metrics=[multi_metrics])
 test_rst = trainer.test(test_dl)
 ```
@@ -82,55 +86,61 @@ test_rst = trainer.test(test_dl)
 |序号|功能说明|代码|
 | ---- | ---- | ---- |
 |1|基本使用|`examples/1-basic.py`|
-|2|训练器、fit方法、test方法的常用参数|`examples/2-basic-params.py`|
+|2|trainer、fit方法、test方法的常用参数|`examples/2-basic-params.py`|
 |3|模型性能评价指标的使用|`examples/3-metrics.py`|
 |4|Checkpoint和EarlyStop|`examples/4-checkpoint-earlystop.py`|
-|5|检测适当的学习率|`examples/5-lr-find.py`|
+|5|寻找适当的学习率|`examples/5-lr-find.py`|
 |6|利用Tensorboad记录训练过程|`examples/6-logger.py`|
 |7|利用tensorboard记录与可视化超参数|`examples/7-log-hyperparameters.py`|
-|8|学习率调度|`examples/8-lr-schedule.py`|
-|9|使用多个优化器|`examples/9-multi-optimizers.py`|
-|10|在训练、验证、测试中使用多个Dataloader|`examples/10-multi-dataloaders.py`|
-|11|利用图神经网络对节点进行分类|`examples/11-node-classification.py`|
-|12|模型前向输出和梯度的可视化|`examples/12-weight-grad-visualize.py`|
-|13|自定义Callback|`examples/13-costomize-callback.py`|
-|14|通过`TrainerBase`定制`train_step`和`evaluate_step`|`examples/14-customize-steps-1.py`|
-|15|通过`EpochTask`定制`train_step`和`eval_step`和`test_step`|`examples/15-customize-steps-2.py`|
-|16|通过`EpochTask`定制`*step`|`examples/16-costomize-steps-3.py`|
-|17|内置Patch的使用|`examples/17-patchs.py`|
-|18|自定义Patch|`examples/18-customize-patch.py`|
+|8|分析、解释或可视化模型的预测效果|`examples/8-interprete.py`|
+|9|学习率调度|`examples/9-lr-schedule.py`|
+|10|使用多个优化器|`examples/10-multi-optimizers.py`|
+|11|在训练、验证、测试中使用多个Dataloader|`examples/11-multi-dataloaders.py`|
+|12|基于图神经网络的节点分类|`examples/12-node-classification.py`|
+|13|模型前向输出和梯度的可视化|`examples/13-weight-grad-visualize.py`|
+|14|自定义Callback|`examples/14-costomize-callback.py`|
+|15|通过`TrainerBase`定制`train_step`和`evaluate_step`|`examples/15-customize-steps-1.py`|
+|16|通过`EpochTask`定制`train_step`和`eval_step`和`test_step`|`examples/16-customize-steps-2.py`|
+|17|通过`EpochTask`定制`step`|`examples/17-costomize-steps-3.py`|
+|18|内置Patch的使用|`examples/18-use_patches.py`|
+|19|自定义Patch|`examples/19-customize-patch.py`|
 
-### 定制训练流程
+### 定制
 
-- 方法1:
+- 方法1（__示例14__）
     - 第1步：继承`deepepochs.Callback`类，定制满足需要的`Callback`
     - 第2步：使用`deepepochs.Trainer`训练模型，将定制的`Callback`对象作为`Trainer`的`callbacks`参数
-- 方法2:
-    - 第1步：继承`deepepochs.TrainerBase`类，定制满足需要的`Trainer`，实现`step`、`train_step`、`val_step`、`test_step`或`evaluate_step`方法
-        - 这些方法有三个参数
-            - `batch_x`：     一个mini-batch的模型输入数据
-            - `batch_y`：     一个mini-batch的标签
-            -  `**step_args`：可变参数字典，包含`do_loss`、`metrics`等参数
-        - 返回值为字典
-            - key：指标名称
-            - value：`deepepochs.PatchBase`子类对象，可用的Patch有
-                - `ValuePatch`：    根据每个batch指标均值（提前计算好）和batch_size，累积计算Epoch指标均值
-                - `TensorPatch`：   保存每个batch模型预测输出及标签，根据指定指标函数累积计算Epoch指标均值
-                - `MeanPatch`：     保存每个batch指标均值，根据指定指标函数累积计算Epoch指标均值
-                - `ConfusionPatch`：累积计算基于混淆矩阵的指标
-                - 也可以继承`PatchBase`定义新的Patch（存在复杂指标运算的情况下）
-                    - `PatchBase.add`方法
-                    - `PatchBase.forward`方法
+- 方法2（__示例15__）
+    - 第1步：继承`deepepochs.TrainerBase`类定制满足需要的`Trainer`，实现`step`、`train_step`、`val_step`、`test_step`或`evaluate_step`方法
+      - 这些方法有三个参数
+          - `batch_x`：     一个mini-batch的模型输入数据
+          - `batch_y`：     一个mini-batch的标签
+          - `**step_args`：可变参数字典，在训练中会被注入`metrics `等参数
+      - 返回值为字典
+          - key：指标名称
+          - value：`deepepochs.PatchBase`子类对象，可用的Patch有（__示例18__）
+              - `ValuePatch`：    根据每个mini-batch指标均值（提前计算好）和batch_size，累积计算Epoch指标均值
+              - `TensorPatch`：   保存每个mini-batch的(preds, targets)，Epoch指标利用所有mini-batch的(preds, targets)数据重新计算
+              - `MeanPatch`：     保存每个batch指标均值，Epoch指标值利用每个mini-batch的均值计算
+                  - 一般`MeanPatch`与`TensorPatch`结果相同，但占用存储空间更小、运算速度更快
+                  - 不可用于计算'precision', 'recall', 'f1', 'fbeta'等指标
+              - `ConfusionPatch`：用于计算基于混淆矩阵的指标，包括'accuracy', 'precision', 'recall', 'f1', 'fbeta'等
+          - 也可以继承`PatchBase`定义新的Patch，需要实现如下方法 __（示例19）__
+              - `PatchBase.add`
+                - 用于将两个Patch对象相加得到更大的Patch对象
+              - `PatchBase.forward`
+                - 用于计算指标，返回指标值或字典
     - 第2步：调用定制`Trainer`训练模型。
-- 方法3:
+- 方法（__示例16、17__）
     - 第1步：继承`deepepochs.EpochTask`类，在其中定义`step`、`train_step`、`val_step`、`test_step`或`evaluate_step`方法
-        - 它们的定义方式与`Trainer`中的`*step`方法相同
-        - `step`方法优先级最高，即可用于训练也可用于验证和测试（定义了`step`方法，其他方法就会失效）
-        - `val_step`、`test_step`优先级高于`evaluate_step`方法
-        - `EpochTask`中的`*_step`方法优先级高于`Trainer`中的`*_step`方法
-    - 第2步：使用新的`EpochTask`任务进行训练
-        - 将`EpochTask`对象作为`Trainer.fit`中`train_tasks`和`val_tasks`的参数值，或者`Trainer.test`方法中`tasks`的参数值
+      - 它们的定义方式与`Trainer`中的`*step`方法相同
+      - `step`方法优先级最高，即可用于训练也可用于验证和测试（定义了`step`方法，其他方法就会失效）
+      - `val_step`、`test_step`优先级高于`evaluate_step`方法
+      - `EpochTask`中的`*step`方法优先级高于`Trainer`中的`*step`方法
+      - `EpochTask`的`__ini__`方法的`**step_args`会被注入`*step`方法的`step_args` 参数
+    - 第2步：使用新的`EpochTask`任务训练
+      - 将`EpochTask`对象作为`Trainer.fit`中`train_tasks`和`val_tasks`的参数值，或者`Trainer.test`方法中`tasks`的参数值
 
 ### 数据流图
 
-<img src="imgs/data_flow.png" width="60%" alt="https://github.com/hitlic/deepepochs/blob/main/imgs/data_flow.png"/>
+<img src="imgs/data_flow.png" width="80%" alt="https://github.com/hitlic/deepepochs/blob/main/imgs/data_flow.png"/>

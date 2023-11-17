@@ -52,7 +52,7 @@ opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 trainer = Trainer(model, F.cross_entropy,
                   callbacks=[checker],  # 启用CheckCallback
                   metrics=[acc],
-                  resume=False,             # 是否从logs文件平中的Checkpoint加载
+                  resume=True,             # 是否从logs文件平中的Checkpoint加载
                                         #    - False表示不加载
                                         #    - True表示从最新的Checkpoint加载
                                         #    - int、str表示加载相应ID的Checkpoint

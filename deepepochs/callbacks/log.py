@@ -57,7 +57,7 @@ class LogCallback(Callback):
             model_input = batch_x if self.example_input is None else self.example_input
             self.graph_saved = True
             try:
-                self.logger.add_graph(trainer.model, model_input)
+                self.logger.add_graph(trainer.model.model, model_input)
             except Exception as e:
                 print("模型结构图保存失败！", e)
 

@@ -4,9 +4,12 @@
 from typing import List, Dict, Callable
 import torch
 from torch.optim import Adam
-from .loops import *
+from .loops import (StopLoopException, LoopException, TensorTuple, ModelWrapper, LossWrapper,
+                    flatten_dict, default_loss, concat_dicts, to_numpy, listify, batch_size)
+from .optimizer import Optimizer, Optimizers
+from .patches import PatchBase, ValuePatch, MeanPatch, TensorPatch, run_patch_dict, run_patch_dicts
 from collections import defaultdict
-from .callbacks import Callback, CallbackPool, DefaultCallback, CallbackException
+from .callbacks import CallbackPool, DefaultCallback, CallbackException
 from torch.utils.data import DataLoader
 from datetime import datetime
 import time
@@ -24,10 +27,11 @@ class EpochTask:
         """
         self.dataloader = dataloader
         self.batchs = len(dataloader)
-        self.metrics = [] if metrics is None else metrics
+        self.metrics = listify(metrics)
         self.do_loss = do_loss
         self.trainer = None
         self.stage = None
+        self.val_freq = None
         self.step_args = step_args
 
     def __len__(self):
@@ -45,16 +49,20 @@ class EpochTask:
         else:
             self.model.eval()
 
+        self.model.stage = self.stage
+        self.loss.stage = self.stage
+        self.loss.do_loss = self.do_loss
+
         if self.stage == 'train':
-            more_metrics = self.train_metrics
+            metrics = [m for m in self.metrics if m not in self.train_metrics] + self.train_metrics
         elif self.stage == 'val':
-            more_metrics = self.val_metrics
+            metrics = [m for m in self.metrics if m not in self.val_metrics] + self.val_metrics
         else:
-            more_metrics = self.test_metrics
+            metrics = [m for m in self.metrics if m not in self.test_metrics] + self.test_metrics
 
         with torch.no_grad():
             self.callbacks.trigger(f'before_{self.stage}_epoch', trainer=self, task=self)
-            metrics_values = []
+            epoch_patch_dicts = []
             for batch_idx, batch_data in enumerate(self.dataloader):
                 batch_x, batch_y = self.prepare_data(batch_data)
                 self.callbacks.trigger(f'before_{self.stage}_batch', trainer=self.trainer, batch_x=batch_x, batch_y=batch_y, batch_idx=batch_idx)
@@ -72,45 +80,78 @@ class EpochTask:
                 # 运行mini-batch的`*step`方法
                 if self.stage == 'train':
                     with torch.enable_grad():
-                        m_value = step_method(batch_x, batch_y, metrics=self.metrics+more_metrics, do_loss=True, **self.step_args)
+                        patch_dict = step_method(batch_x, batch_y, metrics=metrics, **self.step_args)
                 else:
-                    m_value = step_method(batch_x, batch_y, metrics=self.metrics+more_metrics, do_loss=self.do_loss, **self.step_args)
+                    patch_dict = step_method(batch_x, batch_y, metrics=metrics, **self.step_args)
 
-                metrics_values.append(m_value)
+                if not isinstance(patch_dict, dict):
+                    raise LoopException(f'{step_method} 方法的返回值必须为字典！')
+                if not all(isinstance(v, PatchBase) for k, v in patch_dict.items()):
+                    raise LoopException(f'{step_method} 方法返回字典的value必须为Patch（deepepochs.PatchBase子类对象）！')
+
+                epoch_patch_dicts.append(patch_dict)
 
                 # 计算当前batch的指标
-                batch_metric_values = flatten_dict(run_patch_dict(m_value), sep='')
+                batch_metric_values = flatten_dict(run_patch_dict(patch_dict), sep='')
                 self.callbacks.trigger(f'after_{self.stage}_batch', trainer=self.trainer, metrics=batch_metric_values, batch_idx=batch_idx)
             # 计算当前epoch的指标
-            metrics_values = flatten_dict(run_patch_dicts(metrics_values), sep='')
-            self.callbacks.trigger(f'after_{self.stage}_epoch', trainer=self.trainer, task=self, metrics=metrics_values)
-            return metrics_values
+            epoch_metrics_values = flatten_dict(run_patch_dicts(epoch_patch_dicts), sep='')
+            self.callbacks.trigger(f'after_{self.stage}_epoch', trainer=self.trainer, task=self, metrics=epoch_metrics_values)
+            return epoch_metrics_values
 
 
 class TrainerBase:
-    def __init__(self, model, loss=None, opt=None, epochs=1000, device=None, callbacks=None, metrics=None, resume=False, running_id=None, hyper_params=None, long_output=False):
+    def __init__(self, model,
+                 loss=None,
+                 opt=None,
+                 epochs=1000,
+                 device=None,
+                 callbacks=None,
+                 metrics=None,
+                 metric_patch:['mean', 'tensor']='tensor',
+                 resume=False,
+                 running_id=None,
+                 hyper_params=None,
+                 long_output=False,
+                 log_batch=True,
+                 ):
         """
         Args:
-            model:                       Pytorch模型（nn.Module）
-            loss:                        损失函数
-            opt:                         优化器，或优化器列表；优化器是Pytorch优化器或deepepochs.Optimizer对象
-            epochs [int]:                迭代次数
-            device [str]:                cpu或cuda
-            callbacks [List[Callback]]:  Callback或Callback列表。
-            metrics [Callable]:          指标函数列表；通用于训练、验证和测试。
-            resume [bool, int, str]:     是否从logs文件平中的Checkpoint加载
-                                            - False表示不加载
-                                            - True表示从最新的Checkpoint加载
-                                            - int、str表示加载相应ID的Checkpoint
-            running_id [int, str, None]: 当前训练的运行编号，用于指定日志和checkpoint的文件夹名
-            hyper_params [dict, None]:   调参所关注的重要超参数，用于写入日志文件辅助调参
-            long_output [bool]:          指标输出为长格式（7位小数）还是短格式（4位小数）
+            model:                          Pytorch模型（nn.Module）
+            loss:                           损失函数
+            opt:                            优化器，或优化器列表；优化器是Pytorch优化器或deepepochs.Optimizer对象
+            epochs [int]:                   迭代次数
+            device [str]:                   cpu、cuda 或 mps
+            callbacks [List[Callback]]:     Callback或Callback列表。
+            metrics [Callable]:             指标函数列表；通用于训练、验证和测试。
+            metric_patch [PatchBase]:       封装metrics所用的Patch类型，可选项为 mean 或 tensor
+            resume [bool, int, str]:        是否从logs文件平中的Checkpoint加载
+                                               - False表示不加载
+                                               - True表示从最新的Checkpoint加载
+                                               - int、str表示加载相应ID的Checkpoint
+            running_id [int, str, None]:    当前训练的运行编号，用于指定日志和checkpoint的文件夹名
+            hyper_params [dict, None]:      调参所关注的重要超参数，用于写入日志文件辅助调参
+            long_output [bool]:             指标输出为长格式（7位小数）还是短格式（4位小数）
+            log_batch [bool]:               训练过程中是否每个batch输出一次指标值
         """
+        # 检测与配置加速设备
+        if device is not None:
+            self.device = device
+        elif torch.cuda.is_available():
+            self.device = 'cuda'
+        elif torch.backends.mps.is_available():
+            self.device = 'mps'
+        else:
+            self.device = 'cpu'
+
+        # 配置模型
+        self.model = ModelWrapper(model, self).to(self.device)
+
         # 配置损失函数
         if loss is None:
-            self.loss = default_loss
+            self.loss = LossWrapper(default_loss, self)
         else:
-            self.loss = loss
+            self.loss = LossWrapper(loss, self)
 
         # 配置优化器
         if opt is None:
@@ -126,30 +167,21 @@ class TrainerBase:
         else:
             raise ValueError('`opt`参数取值错误！')
 
-        # 迭代次数和device
+        # 迭代次数
         self.epochs = epochs
-        if device is not None:
-            self.device = device
-        else:
-            self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
-        # 模型
-        self.model = model.to(self.device)
 
         # 配置Callbacks
-        if callbacks is None:
-            callbacks = []
-        elif isinstance(callbacks, Callback):
-            callbacks = [callbacks]
-        else:
-            callbacks = list(callbacks)
-        callbacks.append(DefaultCallback(long_output))  # 自动加入DefaultCallback
+        callbacks = listify(callbacks)
+        callbacks.append(DefaultCallback(long_output, log_batch))  # 自动加入DefaultCallback
         self.callbacks = CallbackPool(callbacks)
         self.callbacks.prepare()
 
         # 通用于训练、验证和测试的指标
-        metrics = [] if metrics is None else metrics
-        self.general_metrics = [metrics] if callable(metrics) else list(metrics)
+        self.general_metrics = listify(metrics)
+
+        # 配置指标处理的Patch（TensorPatch, MeanPatch)
+        assert metric_patch in ['mean', 'tensor'], 'metric_patch参数的取值必须为"mean"或"tensor"'
+        self.metric_patch = MeanPatch if metric_patch=='mean' else TensorPatch
 
         self.resume = resume  # 该参数会被CheckCallback使用
 
@@ -157,7 +189,7 @@ class TrainerBase:
             self.running_id = str(int(time.time()))  # 以当前时间为running_id
         else:
             self.running_id = str(running_id)
-        self.hyper_params = hyper_params
+        self.hyper_params = hyper_params  # 该参数会被LogCallback使用
 
     def fit(self,
             train_dl: DataLoader=None,
@@ -187,47 +219,44 @@ class TrainerBase:
         """
         print('=' * 50)
         # print(f'{"DeepEpochs":^50}')
-        print(f'training at {datetime.now()}')
+        print(datetime.now())
+        print(f'running ID: {self.running_id}')
         param_size = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-        print(f'total parameters {param_size}')
+        print(f'parameters: {param_size}')
         print('-' * 50)
         assert not (train_dl is None and train_tasks is None), '`Trainer.fit`方法中，`train_dl`参数和`train_tasks`参数只能有一个为None！'
         assert not (train_dl is not None and train_tasks is not None), '`Trainer.fit`方法中，`train_dl`参数和`train_tasks`参数只能有一个不为None！'
- 
-        # 配置训练与验证指标
-        metrics = [] if metrics is None else metrics
-        metrics = [metrics] if callable(metrics) else list(metrics)
-        metrics = self.general_metrics + [ m for m in metrics if m not in self.general_metrics]  # 使用Trainer.__init__中定义的通用指标
-        train_metrics = [] if train_metrics is None else train_metrics
-        train_metrics = metrics + [m for m in train_metrics if m not in metrics]
-        val_metrics = [] if val_metrics is None else val_metrics
-        val_metrics = metrics + [m for m in val_metrics if m not in metrics]
-        self.train_metrics = train_metrics
-        self.val_metrics = val_metrics
 
-        # 构建训练任务
-        train_tasks = [] if train_tasks is None else train_tasks
-        train_tasks = [train_tasks] if isinstance(train_tasks, EpochTask) else list(train_tasks)
+        # 配置训练与验证指标
+        metrics = listify(metrics)
+        metrics = metrics + [m for m in self.general_metrics if m not in metrics]  # 使用Trainer.__init__中定义的通用指标
+        self.train_metrics = [m for m in listify(train_metrics) if m not in metrics] + metrics
+        self.val_metrics =  [m for m in listify(val_metrics) if m not in metrics] + metrics
+
+        # 配置训练任务
+        train_tasks = listify(train_tasks)
         if train_dl is not None:
-            train_tasks.insert(0, EpochTask(train_dl, metrics=train_metrics))
+            train_tasks.insert(0, EpochTask(train_dl, metrics=self.train_metrics))
         for task in train_tasks:
             task.trainer = self
 
-        # 构建验证任务
-        val_tasks = [] if val_tasks is None else val_tasks
-        val_tasks = [val_tasks] if isinstance(val_tasks, EpochTask) else list(val_tasks)
+        # 配置验证任务
+        val_tasks = listify(val_tasks)
         if val_dl is not None:
-            val_tasks.insert(0, EpochTask(val_dl, metrics=val_metrics, do_loss=do_val_loss))
+            val_tasks.insert(0, EpochTask(val_dl, metrics=self.val_metrics, do_loss=do_val_loss))
         for task in val_tasks:
             task.trainer = self
+            task.val_freq = val_freq
 
-        progress = defaultdict(list)   # 保存各epoch的指标值，作为fit方法返回值
+        # 保存各epoch的指标值，作为fit方法返回值
+        progress = defaultdict(list)
 
+        # Fit
         self.callbacks.trigger('before_fit', trainer=self, epochs=self.epochs)
         try:
             for epoch_idx in range(self.epochs):
                 self.callbacks.trigger('before_epoch', trainer=self, train_tasks=train_tasks, val_tasks=val_tasks, epoch_idx=epoch_idx)
-                # training
+                # 训练
                 train_metric_values = {}
                 self.callbacks.trigger('before_train_epochs', trainer=self, tasks=train_tasks, epoch_idx=epoch_idx)
                 for train_task in train_tasks:
@@ -236,7 +265,7 @@ class TrainerBase:
                 self.callbacks.trigger('after_train_epochs', trainer=self, tasks=train_tasks, metrics=train_metric_values, epoch_idx=epoch_idx)
                 progress['train'].append(train_metric_values)
 
-                # validation
+                # 验证
                 val_metric_values = {}
                 if val_tasks and (epoch_idx + 1) % val_freq == 0:
                     self.callbacks.trigger('before_val_epochs', trainer=self, tasks=val_tasks, epoch_idx=epoch_idx)
@@ -272,16 +301,13 @@ class TrainerBase:
         """
         assert not (test_dl is None and tasks is None), '`Trainer.test`方法中，`train_dl`参数和`task`参数不能同时为None！'
         print('-'*50)
-        metrics = [] if metrics is None else metrics
-        metrics = [metrics] if callable(metrics) else list(metrics)
-        metrics = self.general_metrics + metrics  # 使用Trainer.__init__中定义的通用指标
-        self.test_metrics = metrics
+        # 使用Trainer.__init__中定义的通用指标
+        self.test_metrics = [m for m in listify(metrics) if m not in self.general_metrics] + self.general_metrics
 
-        # 构建测试任务
-        test_tasks = [] if tasks is None else tasks
-        test_tasks = [tasks] if isinstance(tasks, EpochTask) else list(test_tasks)
+        # 配置测试任务
+        test_tasks = listify(tasks)
         if test_dl is not None:
-            task = EpochTask(test_dl, metrics=metrics, do_loss=do_loss)
+            task = EpochTask(test_dl, metrics=self.test_metrics, do_loss=do_loss)
             test_tasks.insert(0, task)
         for task in test_tasks:
             task.trainer = self
@@ -292,22 +318,22 @@ class TrainerBase:
             self.callbacks.trigger('before_test_epochs', trainer=self, tasks=test_tasks)
             for task in test_tasks:
                 task.stage = 'test'
-                m_values = task()
-                test_metric_values.update(m_values)
+                metric_values = task()
+                test_metric_values.update(metric_values)
             self.callbacks.trigger('after_test_epochs', trainer=self, tasks=test_tasks, metrics=test_metric_values)
             return to_numpy(test_metric_values)
         except LoopException as e:
             print('\n', e, sep='')
         return {}
 
-    def train_step(self, batch_x, batch_y, **step_args) -> Dict[str, PatchBase]:
+    def train_step(self, batch_x, batch_y, **step_args):
         """
         TODO: 非常规训练可修改本方法中的代码。
         注意：本方法返回一个字典，键为指标名，值为封装了数据的ValuePatch或者Patch。
         """
         raise NotImplementedError("`Trainer.train_step`方法未实现！")
 
-    def evaluate_step(self,batch_x, batch_y, **step_args) -> Dict[str, PatchBase]:
+    def evaluate_step(self,batch_x, batch_y, **step_args):
         """
         TODO: 非常规验证或测试可修改本方法中的代码。也可以定义val_step方法或test_step方法。
         注意：本方法返回一个字典，键为指标名，值为封装了数据的ValuePatch或者Patch。
@@ -325,17 +351,11 @@ class Trainer(TrainerBase):
         TODO: 非常规训练可修改本方法中的代码。
         注意：本方法返回一个字典，键为指标名，值为封装了数据和指标函数的PatchBase子类对象。
         """
-        self.opt.zero_grad()
         model_out = self.model(*batch_x)
         loss = self.loss(model_out, batch_y)
-        self.callbacks.trigger('before_backward', trainer=self)
-        loss.backward()
-        self.callbacks.trigger('after_backward', trainer=self)
-        self.opt.step()
-
-        results = {'loss': ValuePatch(loss.detach(), len(model_out))}
+        results = {'loss': ValuePatch(loss, batch_size(model_out))}
         for m in step_args.get('metrics', list()):
-            results[m.__name__] = TensorPatch(m, model_out, batch_y)
+            results[m.__name__] = self.metric_patch(m, model_out, batch_y)
         return results
 
     def evaluate_step(self,
@@ -349,10 +369,8 @@ class Trainer(TrainerBase):
         """
         model_out = self.model(*batch_x)
         loss = self.loss(model_out, batch_y)
-        if step_args.get('do_loss', False):  # 如果存在do_loss参数，且值为True则计算损失
-            results = {'loss': ValuePatch(loss.detach(), len(model_out))}
-        else:
-            results = {}
+        # 如果task不需要计算损失，则loss为None
+        results = {} if loss is None else  {'loss': ValuePatch(loss, batch_size(model_out))}
         for m in step_args.get('metrics', list()):
-            results[m.__name__] = TensorPatch(m, model_out, batch_y)
+            results[m.__name__] = self.metric_patch(m, model_out, batch_y)
         return results

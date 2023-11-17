@@ -27,9 +27,9 @@ class HitsCountPatch(PatchBase):
         self.at = at
         self.hits_count = {f'@{v}': 0 for v in at}
         _, ids_sorted = preds.sort(dim=1, descending=True)
-        tgts_np = targets.numpy()
+        tgts_np = targets.cpu().numpy()
         for n in at:
-            ids_n = ids_sorted[:,:n].detach().clone().numpy()
+            ids_n = ids_sorted[:,:n].cpu().detach().clone().numpy()
             hit = np.in1d(tgts_np, ids_n, assume_unique=True)
             self.hits_count[f'@{n}'] += hit.sum()
 
@@ -49,20 +49,12 @@ class MyTask(EpochTask):
         """
         model_out = self.model(*batch_x)
 
-        loss = None
-        if self.stage == 'train':
-            self.opt.zero_grad()
-            loss = self.loss(model_out, batch_y)
-            loss.backward()
-            self.opt.step()
-        elif step_args.get('do_loss', False):
-            loss = self.loss(model_out, batch_y)
+        loss = self.loss(model_out, batch_y)
 
+        results = {}
         # 记录损失值
         if loss is not None:
             results = {'loss': ValuePatch(loss.detach(), batch_size=len(model_out))}
-        else:
-            results = {}
 
         results['nhits'] = HitsCountPatch(model_out, batch_y)               # 在训练、验证和测试中使用自定义Patch
         return results
