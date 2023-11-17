@@ -26,59 +26,40 @@ pip install deepepochs
 #### 应用
 
 ```python
-from deepepochs import Trainer, CheckCallback, rename
-from deepepochs import metrics as dm
 import torch
 from torch import nn
 from torch.nn import functional as F
 from torchvision.datasets import MNIST
 from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
+from deepepochs import Trainer
 
-# datasets
+# 1. --- datasets
 data_dir = './datasets'
 transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
 mnist_full = MNIST(data_dir, train=True, transform=transform, download=True)
-train_ds, val_ds, _ = random_split(mnist_full, [5000, 5000, 50000])
+train_ds, val_ds = random_split(mnist_full, [55000, 5000])
 test_ds = MNIST(data_dir, train=False, transform=transform, download=True)
-
-# dataloaders
 train_dl = DataLoader(train_ds, batch_size=32)
 val_dl = DataLoader(val_ds, batch_size=32)
 test_dl = DataLoader(test_ds, batch_size=32)
 
-# pytorch model
+# 2. --- model
 channels, width, height = (1, 28, 28)
 model = nn.Sequential(
     nn.Flatten(),
-    nn.Linear(channels * width * height, 64),
-    nn.ReLU(),
-    nn.Dropout(0.1),
-    nn.Linear(64, 64),
-    nn.ReLU(),
-    nn.Dropout(0.1),
+    nn.Linear(channels * width * height, 64), nn.ReLU(), nn.Dropout(0.1),
+    nn.Linear(64, 64), nn.ReLU(), nn.Dropout(0.1),
     nn.Linear(64, 10)
 )
 
-# metrics
-def acc(preds, targets):
-    return dm.accuracy(preds, targets)
-
-@rename('')
-def multi_metrics(preds, targets):
-    return {
-        'p': dm.precision(preds, targets, average='macro'),
-        'r': dm.recall(preds, targets, average='macro')
-        }
-
-# checkpoint and ealy stop
-checker = CheckCallback('loss', on_stage='val', mode='min', patience=2)
-# optimizer
+# 3. --- optimizer
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 
-trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=5, callbacks=checker, metrics=[acc])
-progress = trainer.fit(train_dl, val_dl, metrics=[multi_metrics])
-test_rst = trainer.test(test_dl)
+# 4. --- train
+trainer = Trainer(model, F.cross_entropy, opt, epochs=2)  # 训练器
+trainer.fit(train_dl, val_dl)                             # 训练、验证
+trainer.test(test_dl)                                     # 测试
 ```
 
 ### 示例
@@ -86,24 +67,24 @@ test_rst = trainer.test(test_dl)
 |序号|功能说明|代码|
 | ---- | ---- | ---- |
 |1|基本使用|[examples/1-basic.py](examples/1-basic.py)|
-|2|trainer、fit方法、test方法的常用参数|`examples/2-basic-params.py`|
-|3|模型性能评价指标的使用|`examples/3-metrics.py`|
-|4|Checkpoint和EarlyStop|`examples/4-checkpoint-earlystop.py`|
-|5|寻找适当的学习率|`examples/5-lr-find.py`|
-|6|利用Tensorboad记录训练过程|`examples/6-logger.py`|
-|7|利用tensorboard记录与可视化超参数|`examples/7-log-hyperparameters.py`|
-|8|分析、解释或可视化模型的预测效果|`examples/8-interprete.py`|
-|9|学习率调度|`examples/9-lr-schedule.py`|
-|10|使用多个优化器|`examples/10-multi-optimizers.py`|
-|11|在训练、验证、测试中使用多个Dataloader|`examples/11-multi-dataloaders.py`|
-|12|基于图神经网络的节点分类|`examples/12-node-classification.py`|
-|13|模型前向输出和梯度的可视化|`examples/13-weight-grad-visualize.py`|
-|14|自定义Callback|`examples/14-costomize-callback.py`|
-|15|通过`TrainerBase`定制`train_step`和`evaluate_step`|`examples/15-customize-steps-1.py`|
-|16|通过`EpochTask`定制`train_step`和`eval_step`和`test_step`|`examples/16-customize-steps-2.py`|
-|17|通过`EpochTask`定制`step`|`examples/17-costomize-steps-3.py`|
-|18|内置Patch的使用|`examples/18-use_patches.py`|
-|19|自定义Patch|`examples/19-customize-patch.py`|
+|2|trainer、fit方法、test方法的常用参数|[examples/2-basic-params.py](examples/2-basic-params.py)|
+|3|模型性能评价指标的使用|[examples/3-metrics.py](examples/3-metrics.py)|
+|4|Checkpoint和EarlyStop|[examples/4-checkpoint-earlystop.py](examples/4-checkpoint-earlystop.py)|
+|5|寻找适当的学习率|[examples/5-lr-find.py](examples/5-lr-find.py)|
+|6|利用Tensorboad记录训练过程|[examples/6-logger.py](examples/6-logger.py)|
+|7|利用tensorboard记录与可视化超参数|[examples/7-log-hyperparameters.py](examples/7-log-hyperparameters.py)|
+|8|分析、解释或可视化模型的预测效果|[examples/8-interprete.py](examples/8-interprete.py)|
+|9|学习率调度|[examples/9-lr-schedule.py](examples/9-lr-schedule.py)|
+|10|使用多个优化器|[examples/10-multi-optimizers.py](examples/10-multi-optimizers.py)|
+|11|在训练、验证、测试中使用多个Dataloader|[examples/11-multi-dataloaders.py](examples/11-multi-dataloaders.py)|
+|12|基于图神经网络的节点分类|[examples/12-node-classification.py](examples/12-node-classification.py)|
+|13|模型前向输出和梯度的可视化|[examples/13-weight-grad-visualize.py](examples/13-weight-grad-visualize.py)|
+|14|自定义Callback|[examples/14-costomize-callback.py](examples/14-costomize-callback.py)|
+|15|通过`TrainerBase`定制`train_step`和`evaluate_step`|[examples/15-customize-steps-1.py](examples/15-customize-steps-1.py)|
+|16|通过`EpochTask`定制`train_step`和`eval_step`和`test_step`|[examples/16-customize-steps-2.py](examples/16-customize-steps-2.py)|
+|17|通过`EpochTask`定制`step`|[examples/17-costomize-steps-3.py](examples/17-costomize-steps-3.py)|
+|18|内置Patch的使用|[examples/18-use_patches.py](examples/18-use_patches.py)|
+|19|自定义Patch|[examples/19-customize-patch.py](examples/19-customize-patch.py)|
 
 ### 定制
 
