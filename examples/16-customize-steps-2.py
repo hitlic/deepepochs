@@ -1,47 +1,13 @@
 """
 通过EpochTask定制train_step和eval_step和test_step
 """
-from deepepochs import Trainer, ValuePatch, TensorPatch, EpochTask, metrics as mm
+from deepepochs import Trainer, TensorPatch, EpochTask, metrics as mm
 import torch
 from torch import nn
 from torch.nn import functional as F
 from torchvision.datasets import MNIST
 from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
-
-
-# 通过EpochTask定制训练、验证和测试步
-class MyTask(EpochTask):
-    def train_step(self, batch_x, batch_y, **step_args):
-        """
-        注意：本方法返回一个字典，键为指标名，值为封装了数据和指标函数的PatchBase子类对象。
-        """
-        model_out = self.model(*batch_x)
-        loss = self.loss(model_out, batch_y)
-
-        # 记录损失值
-        results = {'loss': ValuePatch(loss, len(model_out))}
-        # 记录其他指标值
-        for m in step_args.get('metrics', list()):
-            results[m.__name__] = TensorPatch(m, model_out, batch_y)
-        return results
-
-    def val_step(self, batch_x, batch_y, **step_args):
-        """
-        注意：本方法返回一个字典，键为指标名，值为封装了数据和指标函数的PatchBase子类对象。
-        """
-        model_out = self.model(*batch_x)
-        loss = self.loss(model_out, batch_y)
-
-        # 记录损失值
-        results = {} if loss is None else {'loss': ValuePatch(loss, len(model_out))}
-        # 记录其他指标值
-        for m in step_args.get('metrics', list()):
-            results[m.__name__] = TensorPatch(m, model_out, batch_y)
-        return results
-
-    def test_step(self, batch_x, batch_y, **step_args):
-        return self.val_step(batch_x, batch_y, **step_args)
 
 
 data_dir = './datasets'
@@ -66,11 +32,8 @@ model = nn.Sequential(
     nn.Linear(64, 10)
 )
 
-opt = torch.optim.Adam(model.parameters(), lr=2e-4)
-
-
-def m_(preds, targets):
-    avg = 'micro'
+def metrics(preds, targets):
+    avg = 'macro'
     cmat = mm.confusion_matrix(preds, targets, 10)
     return {
         'acc': mm.accuracy(conf_mat=cmat),
@@ -79,8 +42,37 @@ def m_(preds, targets):
         'f1': mm.f1(conf_mat=cmat, average=avg),
     }
 
+opt = torch.optim.Adam(model.parameters(), lr=2e-4)
+trainer = Trainer(model, F.cross_entropy, opt, epochs=2)  # 训练器
 
-trainer = Trainer(model, F.cross_entropy, opt, epochs=2, metrics=[m_])  # 训练器
+
+# 通过EpochTask定制训练、验证和测试步
+class MyTask(EpochTask):
+    def train_step(self, batch_x, batch_y, **step_args):
+        """
+        注意：本方法返回None或者字典（键为指标名，值为封装了数据和指标函数的PatchBase子类对象）
+        """
+        model_out = self.model(*batch_x)
+        self.loss(model_out, batch_y)
+
+        # 记录指标值
+        results = {'m_': TensorPatch(metrics, model_out, batch_y)}
+        return results
+
+    def val_step(self, batch_x, batch_y, **step_args):
+        """
+        注意：本方法返回None或者字典（键为指标名，值为封装了数据和指标函数的PatchBase子类对象）
+        """
+        model_out = self.model(*batch_x)
+        self.loss(model_out, batch_y)
+
+        # 记录指标值
+        results = {'m_': TensorPatch(metrics, model_out, batch_y)}
+        return results
+
+    def test_step(self, batch_x, batch_y, **step_args):
+        return self.val_step(batch_x, batch_y, **step_args)
+
 
 train_task = MyTask(train_dl)
 val_task = MyTask(val_dl)

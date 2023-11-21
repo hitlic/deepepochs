@@ -33,7 +33,9 @@ def listify(obj):
         return []
     if isinstance(obj, list):
         return obj
-    if isinstance(obj, str):
+    if isinstance(obj, tuple):
+        return list(obj)
+    if isinstance(obj, (dict, str)):
         return [obj]
     if isinstance(obj, Iterable):
         return list(obj)
@@ -264,81 +266,3 @@ class StopLoopException(Exception):
 
 class LoopException(Exception):
     pass
-
-
-class ModelWrapper:
-    """
-    用于实现回调：
-        on_before_train_forward    on_after_train_forward
-        on_before_val_forward      on_after_val_forward
-        on_before_test_forward     on_after_test_forward
-    """
-    def __init__(self, model, trainer):
-        self.model = model
-        self.trainer = trainer
-        self.stage = None
-
-    def __getattr__(self, name):
-        return getattr(self.model, name)
-
-    def __call__(self, *args, **kwds):
-        self.trainer.callbacks.trigger(f'before_{self.stage}_forward', trainer=self)
-        model_out = self.model(*args, **kwds)
-        self.trainer.callbacks.trigger(f'after_{self.stage}_forward', trainer=self, model_out=model_out)
-        return model_out
-
-    def train(self):
-        self.model.train()
-
-    def eval(self):
-        self.model.eval()
-
-    def to(self, device):
-        self.model = self.model.to(device)
-        return self
-
-    def cpu(self):
-        self.model = self.model.cpu()
-        return self
-
-    def cuda(self):
-        self.model = self.model.cuda()
-        return self
-
-    def parameters(self):
-        return self.model.parameters()
-
-    def modules(self):
-        return self.model.modules()
-
-    def state_dict(self):
-        return self.model.state_dict()
-
-    def load_state_dict(self, state_dict, strict: bool = True, assign: bool = False):
-        self.model.load_state_dict(state_dict, strict, assign)
-
-
-class LossWrapper:
-    """
-    用于自动完成zero_grad、backward、opt.step等操作
-       实现回调： on_before_backward    on_after_backward
-    """
-    def __init__(self, loss_fn, trainer):
-        self.loss_fn = loss_fn
-        self.trainer = trainer
-        self.stage = None
-        self.do_loss = None
-
-    def __call__(self, *args, **kwds):
-        if not self.do_loss:
-            return None
-
-        if self.stage == 'train':
-            self.trainer.opt.zero_grad()
-        loss = self.loss_fn(*args, **kwds)
-        if self.stage == 'train':
-            self.trainer.callbacks.trigger('before_backward', trainer=self, loss=loss)
-            loss.backward()
-            self.trainer.opt.step()
-            self.trainer.callbacks.trigger('after_backward', trainer=self, loss=loss)
-        return loss.detach()

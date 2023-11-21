@@ -3,7 +3,8 @@
 """
 from collections.abc import Iterable
 import time
-from ..loops import log_batch, log_epoch
+from ..loops import log_batch, log_epoch, batch_size
+from ..patches import ValuePatch
 
 
 class CallbackException(Exception):
@@ -24,6 +25,7 @@ class Callback:
                             on_after_train_forward
                             on_before_backward
                             on_after_backward
+                            on_train_prediction
                         on_after_train_batch
                         ...
                     on_after_train_epoch
@@ -34,6 +36,7 @@ class Callback:
                         on_before_val_batch
                             on_before_val_forward
                             on_after_val_forward
+                            on_val_prediction
                         on_after_val_batch
                         ...
                     on_after_val_epoch
@@ -47,6 +50,7 @@ class Callback:
                 on_before_test_batch
                     on_before_test_forward
                     on_after_test_forward
+                    on_test_prediction
                 on_after_test_batch
                 ...
             on_after_test_epoch
@@ -127,6 +131,16 @@ class Callback:
             trainer:  Trainer
         """
 
+    def on_train_prediction(self, trainer, loss, model_out, targets, task):
+        """
+        Args:
+            trainer:    Trainer
+            loss:       当前batch的损失
+            model_out:  模型前向预测输出
+            targets:    标签
+            task:       当前的EpochTask
+        """
+
     def on_after_train_batch(self, trainer, metrics, batch_idx):
         """
         Args:
@@ -187,6 +201,16 @@ class Callback:
         Args:
             trainer:    Trainer
             model_out:  模型前向预测输出
+        """
+
+    def on_val_prediction(self, trainer, loss, model_out, targets, task):
+        """
+        Args:
+            trainer:    Trainer
+            loss:       当前batch的损失
+            model_out:  模型前向预测输出
+            targets:    标签
+            task:       当前的EpochTask
         """
 
     def on_after_val_batch(self, trainer, metrics, batch_idx):
@@ -263,6 +287,16 @@ class Callback:
             model_out:  模型前向预测输出
         """
 
+    def on_test_prediction(self, trainer, loss, model_out, targets, task):
+        """
+        Args:
+            trainer:    Trainer
+            loss:       当前batch的损失
+            model_out:  模型前向预测输出
+            targets:    标签
+            task:       当前的EpochTask
+        """
+
     def on_after_test_batch(self, trainer, metrics, batch_idx):
         """
         Args:
@@ -320,6 +354,7 @@ class DefaultCallback(Callback):
         默认启用的Callback，实现功能：
             指标输出
             学习率调度
+            为mini-batch构建每个指标的Patch
         Args:
             long_output: 指标输出为长格式（7位小说）还是短格式（4位小数）
             bog_batch:   是否输出batch的指标值
@@ -378,3 +413,21 @@ class DefaultCallback(Callback):
         self.global_test_batch_idx += 1
         if self.log_batch:
             log_batch(metrics, self.global_test_epoch_idx, self.total_test_epochs, self.global_test_batch_idx, self.total_test_batchs, 'TEST', self.epoch_width, self.batch_width, self.round_to)
+
+    def on_train_prediction(self, trainer, loss, model_out, targets, task):
+        """当前task的每个指标构建Patch，并注入task.batch_patch_dict"""
+        task.batch_patch_dict = self.make_patch_dict(trainer, loss, model_out, targets, task.metrics)
+
+    def on_val_prediction(self, trainer, loss, model_out, targets, task):
+        """当前task的每个指标构建Patch，并注入task.batch_patch_dict"""
+        task.batch_patch_dict = self.make_patch_dict(trainer, loss, model_out, targets, task.metrics)
+
+    def on_test_prediction(self, trainer, loss, model_out, targets, task):
+        """当前task的每个指标构建Patch，并注入task.batch_patch_dict"""
+        task.batch_patch_dict = self.make_patch_dict(trainer, loss, model_out, targets, task.metrics)
+
+    def make_patch_dict(self, trainer, loss, model_out, targets, metrics):
+        patch_dict = {} if loss is None else  {'loss': ValuePatch(loss, batch_size(model_out))}
+        for m in metrics:
+            patch_dict[m.__name__] = trainer.metric_patch(m, model_out, targets)
+        return patch_dict

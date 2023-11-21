@@ -4,15 +4,101 @@
 from typing import List, Dict, Callable
 import torch
 from torch.optim import Adam
-from .loops import (StopLoopException, LoopException, TensorTuple, ModelWrapper, LossWrapper,
-                    flatten_dict, default_loss, concat_dicts, to_numpy, listify, batch_size)
+from .loops import (StopLoopException, LoopException, TensorTuple,
+                    flatten_dict, default_loss, concat_dicts, to_numpy, listify)
 from .optimizer import Optimizer, Optimizers
-from .patches import PatchBase, ValuePatch, MeanPatch, TensorPatch, run_patch_dict, run_patch_dicts
+from .patches import PatchBase, MeanPatch, TensorPatch, run_patch_dict, run_patch_dicts
 from collections import defaultdict
 from .callbacks import CallbackPool, DefaultCallback, CallbackException
 from torch.utils.data import DataLoader
 from datetime import datetime
 import time
+
+
+class ModelWrapper:
+    """
+    用于实现回调：
+        on_before_train_forward    on_after_train_forward
+        on_before_val_forward      on_after_val_forward
+        on_before_test_forward     on_after_test_forward
+    """
+    def __init__(self, model, trainer):
+        self.model = model
+        self.trainer = trainer
+        self.stage = None
+
+    def __getattr__(self, name):
+        return getattr(self.model, name)
+
+    def __call__(self, *args, **kwds):
+        self.trainer.callbacks.trigger(f'before_{self.stage}_forward', trainer=self)
+        model_out = self.model(*args, **kwds)
+        self.trainer.callbacks.trigger(f'after_{self.stage}_forward', trainer=self, model_out=model_out)
+        return model_out
+
+    def train(self):
+        self.model.train()
+
+    def eval(self):
+        self.model.eval()
+
+    def to(self, device):
+        self.model = self.model.to(device)
+        return self
+
+    def cpu(self):
+        self.model = self.model.cpu()
+        return self
+
+    def cuda(self):
+        self.model = self.model.cuda()
+        return self
+
+    def parameters(self):
+        return self.model.parameters()
+
+    def modules(self):
+        return self.model.modules()
+
+    def state_dict(self):
+        return self.model.state_dict()
+
+    def load_state_dict(self, state_dict, strict: bool = True, assign: bool = False):
+        self.model.load_state_dict(state_dict, strict, assign)
+
+
+class LossWrapper:
+    """
+    用于自动完成zero_grad、backward、opt.step等操作
+       实现回调： on_train_prediction
+                on_val_prediction
+                on_test_prediction
+                on_before_backward    on_after_backward
+    """
+    def __init__(self, loss_fn, trainer):
+        self.loss_fn = loss_fn
+        self.trainer = trainer
+        self.stage = None
+        self.do_loss = None
+        self.task = None
+
+    def __call__(self, model_out, targets):
+        if self.stage == 'train':
+            self.trainer.opt.zero_grad()
+            loss = self.loss_fn(model_out, targets)
+            self.trainer.callbacks.trigger('before_backward', trainer=self, loss=loss)
+            loss.backward()
+            self.trainer.opt.step()
+            self.trainer.callbacks.trigger('after_backward', trainer=self, loss=loss)
+        else:
+            if self.do_loss:
+                loss = self.loss_fn(model_out, targets)
+            else:
+                loss = None
+        loss = None if loss is None else loss.detach().clone()
+        model_out = TensorTuple(model_out).detach().clone()
+        self.trainer.callbacks.trigger(f'{self.stage}_prediction', trainer=self.trainer, loss=loss, model_out=model_out, targets=targets, task=self.task)
+        return loss
 
 
 class EpochTask:
@@ -33,6 +119,7 @@ class EpochTask:
         self.stage = None
         self.val_freq = None
         self.step_args = step_args
+        self.batch_patch_dict = None   # 由DefaultCallback中的on_train/val/test_prediction回调注入
 
     def __len__(self):
         return self.batchs
@@ -52,13 +139,15 @@ class EpochTask:
         self.model.stage = self.stage
         self.loss.stage = self.stage
         self.loss.do_loss = self.do_loss
+        self.loss.task = self
 
+        # 配置指标，在DefaultCallback中的on_train/val/test_prediction中用于构造Patch
         if self.stage == 'train':
-            metrics = [m for m in self.metrics if m not in self.train_metrics] + self.train_metrics
+            self.metrics = [m for m in self.metrics if m not in self.train_metrics] + self.train_metrics
         elif self.stage == 'val':
-            metrics = [m for m in self.metrics if m not in self.val_metrics] + self.val_metrics
+            self.metrics = [m for m in self.metrics if m not in self.val_metrics] + self.val_metrics
         else:
-            metrics = [m for m in self.metrics if m not in self.test_metrics] + self.test_metrics
+            self.metrics = [m for m in self.metrics if m not in self.test_metrics] + self.test_metrics
 
         with torch.no_grad():
             self.callbacks.trigger(f'before_{self.stage}_epoch', trainer=self, task=self)
@@ -80,19 +169,25 @@ class EpochTask:
                 # 运行mini-batch的`*step`方法
                 if self.stage == 'train':
                     with torch.enable_grad():
-                        patch_dict = step_method(batch_x, batch_y, metrics=metrics, **self.step_args)
+                        step_out = step_method(batch_x, batch_y, **self.step_args)
                 else:
-                    patch_dict = step_method(batch_x, batch_y, metrics=metrics, **self.step_args)
+                    step_out = step_method(batch_x, batch_y, **self.step_args)
 
-                if not isinstance(patch_dict, dict):
-                    raise LoopException(f'{step_method} 方法的返回值必须为字典！')
-                if not all(isinstance(v, PatchBase) for k, v in patch_dict.items()):
-                    raise LoopException(f'{step_method} 方法返回字典的value必须为Patch（deepepochs.PatchBase子类对象）！')
+                if step_out is not None:
+                    if not isinstance(step_out, dict):
+                        raise LoopException(f'{step_method} 方法的返回值必须为字典！')
+                    if not all(isinstance(v, PatchBase) for k, v in step_out.items()):
+                        raise LoopException(f'{step_method} 方法返回字典的value必须为Patch（deepepochs.PatchBase子类对象）！')
+                    patch_dict = step_out
+                else:
+                    patch_dict = {}
 
-                epoch_patch_dicts.append(patch_dict)
+                self.batch_patch_dict.update(patch_dict)
+
+                epoch_patch_dicts.append(self.batch_patch_dict)
 
                 # 计算当前batch的指标
-                batch_metric_values = flatten_dict(run_patch_dict(patch_dict), sep='')
+                batch_metric_values = flatten_dict(run_patch_dict(self.batch_patch_dict), sep='')
                 self.callbacks.trigger(f'after_{self.stage}_batch', trainer=self.trainer, metrics=batch_metric_values, batch_idx=batch_idx)
             # 计算当前epoch的指标
             epoch_metrics_values = flatten_dict(run_patch_dicts(epoch_patch_dicts), sep='')
@@ -349,14 +444,11 @@ class Trainer(TrainerBase):
                    ) -> Dict[str, PatchBase]:
         """
         TODO: 非常规训练可修改本方法中的代码。
-        注意：本方法返回一个字典，键为指标名，值为封装了数据和指标函数的PatchBase子类对象。
+        注意：本方法返回None或者字典（键为指标名，值为封装了数据和指标函数的PatchBase子类对象）
         """
         model_out = self.model(*batch_x)
-        loss = self.loss(model_out, batch_y)
-        results = {'loss': ValuePatch(loss, batch_size(model_out))}
-        for m in step_args.get('metrics', list()):
-            results[m.__name__] = self.metric_patch(m, model_out, batch_y)
-        return results
+        self.loss(model_out, batch_y)
+
 
     def evaluate_step(self,
                       batch_x:[torch.Tensor, List[torch.Tensor]],
@@ -365,12 +457,7 @@ class Trainer(TrainerBase):
                       ) -> Dict[str, PatchBase]:
         """
         TODO: 非常规验证或测试可修改本方法中的代码。
-        注意：本方法返回一个字典，键为指标名，值为封装了数据和指标函数的PatchBase子类对象。
+        注意：本方法返回None或者字典（键为指标名，值为封装了数据和指标函数的PatchBase子类对象）
         """
         model_out = self.model(*batch_x)
-        loss = self.loss(model_out, batch_y)
-        # 如果task不需要计算损失，则loss为None
-        results = {} if loss is None else  {'loss': ValuePatch(loss, batch_size(model_out))}
-        for m in step_args.get('metrics', list()):
-            results[m.__name__] = self.metric_patch(m, model_out, batch_y)
-        return results
+        self.loss(model_out, batch_y)

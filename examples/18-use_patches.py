@@ -23,22 +23,6 @@ from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
 
 
-class MyTask(EpochTask):
-    def step(self, batch_x, batch_y, **step_args):
-        model_out = self.model(*batch_x)
-        loss = self.loss(model_out, batch_y)
-
-        results = {}
-        if loss is not None:
-            results = {'loss': ValuePatch(loss.detach(), batch_size=len(model_out))}        # 1. 利用ValuePatch返回损失值
-
-        for m in step_args.get('metrics', list()):
-            results['tacc'] = TensorPatch(m, model_out, batch_y)                            # 2. 利用TensorPatch返回计算accuracy指标的数据
-            results['macc'] = MeanPatch(m, model_out, batch_y)                              # 3. 利用MeanPatch返回计算accuracy指标的数据
-        results['cm'] = ConfusionPatch(model_out, batch_y, metrics=['accuracy'], name='C.') # 4. 利用ConfusionPatch返回计算accuracy指标的数据
-        return results
-
-
 data_dir = './datasets'
 transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
 mnist_full = MNIST(data_dir, train=True, transform=transform, download=True)
@@ -62,7 +46,23 @@ model = nn.Sequential(
 )
 
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
-trainer = Trainer(model, F.cross_entropy, opt, epochs=2, metrics=[mm.accuracy])
+trainer = Trainer(model, F.cross_entropy, opt, epochs=2)
+
+
+class MyTask(EpochTask):
+    def step(self, batch_x, batch_y, **step_args):
+        model_out = self.model(*batch_x)
+        loss = self.loss(model_out, batch_y)
+
+        results = {}
+        if loss is not None:
+            results = {'loss1': ValuePatch(loss.detach(), batch_size=len(model_out))}         # 1. 利用ValuePatch返回损失值，并命名为loss1
+
+        results['tacc'] = TensorPatch(mm.accuracy, model_out, batch_y)                       # 2. 利用TensorPatch返回计算accuracy指标的数据
+        results['macc'] = MeanPatch(mm.accuracy, model_out, batch_y)                         # 3. 利用MeanPatch返回计算accuracy指标的数据
+        results['cm'] = ConfusionPatch(model_out, batch_y, metrics=['accuracy'], name='C.')  # 4. 利用ConfusionPatch返回计算accuracy指标的数据
+        return results
+
 
 train_task = MyTask(train_dl)
 val_task = MyTask(val_dl)

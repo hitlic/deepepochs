@@ -7,7 +7,7 @@
     - `forward()`：无参数，返回当前Patch的指标值
     - `add(obj)`：参数`obj`为另一个Patch对象，返回当前Patch对象和`obj`相加得到的新Patch对象
 """
-from deepepochs import Trainer, PatchBase, ValuePatch, EpochTask, sum_dicts
+from deepepochs import Trainer, PatchBase, EpochTask, sum_dicts
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -49,13 +49,9 @@ class MyTask(EpochTask):
         """
         model_out = self.model(*batch_x)
 
-        loss = self.loss(model_out, batch_y)
+        self.loss(model_out, batch_y)
 
         results = {}
-        # 记录损失值
-        if loss is not None:
-            results = {'loss': ValuePatch(loss.detach(), batch_size=len(model_out))}
-
         results['nhits'] = HitsCountPatch(model_out, batch_y)               # 在训练、验证和测试中使用自定义Patch
         return results
 

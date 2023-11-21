@@ -5,31 +5,13 @@
     3. `val_step`、`test_step`优先级高于`evaluate_step`方法
     4. `EpochTask`中的`*step`方法优先级高于`Trainer`中的`*step`方法
 """
-from deepepochs import Trainer, ValuePatch, TensorPatch, EpochTask, metrics as mm
+from deepepochs import Trainer, TensorPatch, EpochTask, metrics as mm
 import torch
 from torch import nn
 from torch.nn import functional as F
 from torchvision.datasets import MNIST
 from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
-
-
-# 定制可用于训练、验证和测试的step方法
-class MyTask(EpochTask):
-    def step(self, batch_x, batch_y, **step_args):
-        """
-        在训练、验证和测试中使用了同一step方法。
-        注意：本方法返回一个字典，键为指标名，值为封装了数据和指标函数的PatchBase子类对象。
-        """
-        model_out = self.model(*batch_x)
-        loss = self.loss(model_out, batch_y)
-
-        # 记录损失值
-        results = {} if loss is None else {'loss': ValuePatch(loss, batch_size=len(model_out))}
-        # 记录其他指标值
-        for m in step_args.get('metrics', list()):
-            results[m.__name__] = TensorPatch(m, model_out, batch_y)
-        return results
 
 
 data_dir = './datasets'
@@ -56,7 +38,7 @@ model = nn.Sequential(
 
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 
-def m_(preds, targets):
+def metrics(preds, targets):
     avg = 'macro'
     cmat = mm.confusion_matrix(preds, targets, 10)
     return {
@@ -66,7 +48,22 @@ def m_(preds, targets):
         'f1': mm.f1(conf_mat=cmat, average=avg),
     }
 
-trainer = Trainer(model, F.cross_entropy, opt, epochs=2, metrics=[m_])  # 训练器
+trainer = Trainer(model, F.cross_entropy, opt, epochs=2)  # 训练器
+
+
+# 定制可用于训练、验证和测试的step方法
+class MyTask(EpochTask):
+    def step(self, batch_x, batch_y, **step_args):
+        """
+        在训练、验证和测试中使用了同一step方法。
+        注意：本方法返回None或者字典（键为指标名，值为封装了数据和指标函数的PatchBase子类对象）
+        """
+        model_out = self.model(*batch_x)
+        self.loss(model_out, batch_y)
+
+        # 记录指标值
+        results = {'m_': TensorPatch(metrics, model_out, batch_y)}
+        return results
 
 train_task = MyTask(train_dl)
 val_task = MyTask(val_dl, do_loss=False)

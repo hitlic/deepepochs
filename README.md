@@ -96,8 +96,8 @@ trainer.test(test_dl)                                     # 测试
       - 这些方法有三个参数
           - `batch_x`：     一个mini-batch的模型输入数据
           - `batch_y`：     一个mini-batch的标签
-          - `**step_args`：可变参数字典，在训练中会被注入`metrics `等参数
-      - 返回值为字典
+          - `**step_args`：可变参数字典，即`EpochTask`的`step_args`参数
+      - 返回值为`None`或字典
           - key：指标名称
           - value：`deepepochs.PatchBase`子类对象，可用的Patch有（__示例18__）
               - `ValuePatch`：    根据每个mini-batch指标均值（提前计算好）和batch_size，累积计算Epoch指标均值

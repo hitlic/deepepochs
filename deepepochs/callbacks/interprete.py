@@ -1,7 +1,6 @@
 from torch.utils.tensorboard import SummaryWriter
 from matplotlib import pyplot as plt
 from os import path as osp
-import torch
 from ..tools import plot_confusion, TopKQueue
 from ..metrics import confusion_matrix, get_class_num
 from ..loops import check_path
@@ -104,7 +103,7 @@ class InterpreteCallback(Callback):
         if 'test' in self.stages:
             if self.image_data:  # 在tensorboard中保存图像数据
                 for i, data in enumerate(self.top_queue.queue):
-                    self.logger.add_image('top_imgs', torch.tensor(data[1][3]), i)
+                    self.logger.add_image('top_imgs', data[1][3], i)
             fig = self.plot_confusion(show=False)
             self.logger.add_figure('test_confusion_matrix', fig)
             plt.close(fig)
@@ -116,7 +115,7 @@ class InterpreteCallback(Callback):
         assert batch_m.shape[0] == preds.shape[0], 'The `metric` must not be reduced!'
         for m, pred, target, feat in zip(batch_m.cpu(), preds.cpu(), targets.cpu(), inputs[0].cpu()):
             v = -m if self.mode == 'min' else m
-            self.top_queue.put((v.item(), [m.item(), pred.detach().numpy(), target.detach().numpy(), feat]))
+            self.top_queue.put((v.item(), [m.item(), pred, target, feat]))
 
     def top_samples(self):
         """

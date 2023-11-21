@@ -1,45 +1,15 @@
 """
 通过TrainerBase定制train_step和evaluate_step
+
+在定制的Trainer中，train_step和evaluate_step返回了Patch字典。
 """
-from deepepochs import TrainerBase, ValuePatch, TensorPatch, metrics as mm
+from deepepochs import TrainerBase, TensorPatch, metrics as mm
 import torch
 from torch import nn
 from torch.nn import functional as F
 from torchvision.datasets import MNIST
 from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
-
-
-# 通过Trainer定制训练和验证步
-class Trainer(TrainerBase):
-    def train_step(self, batch_x, batch_y, **step_args):
-        """
-        注意：本方法返回一个字典，键为指标名，值为封装了数据和指标函数的PatchBase子类对象。
-        """
-        model_out = self.model(*batch_x)
-        loss = self.loss(model_out, batch_y)
-
-        # 记录损失值
-        results = {'loss': ValuePatch(loss, len(model_out))}
-        # 记录其他指标值
-        for m in step_args.get('metrics', list()):
-            results[m.__name__] = TensorPatch(m, model_out, batch_y)
-        return results
-
-    def evaluate_step(self, batch_x, batch_y, **step_args):
-        """
-        注意：本方法返回一个字典，键为指标名，值为封装了数据和指标函数的PatchBase子类对象。
-        """
-        model_out = self.model(*batch_x)
-        loss = self.loss(model_out, batch_y)
-
-        # 记录损失值
-        results = {} if loss is None else  {'loss': ValuePatch(loss, len(model_out))}
-        # 记录其他指标值
-        for m in step_args.get('metrics', list()):
-            results[m.__name__] = TensorPatch(m, model_out, batch_y)
-        return results
-
 
 
 data_dir = './datasets'
@@ -67,8 +37,8 @@ model = nn.Sequential(
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 
 
-def m_(preds, targets):
-    avg = 'micro'
+def metrics(preds, targets):
+    avg = 'macro'
     cmat = mm.confusion_matrix(preds, targets, 10)
     return {
         'acc': mm.accuracy(conf_mat=cmat),
@@ -77,6 +47,32 @@ def m_(preds, targets):
         'f1': mm.f1(conf_mat=cmat, average=avg),
     }
 
-trainer = Trainer(model, F.cross_entropy, opt, epochs=2, metrics=[m_])  # 训练器
-trainer.fit(train_dl, val_dl, do_val_loss=False)                        # 训练、验证
-trainer.test(test_dl, do_loss=False)                                    # 测试
+
+# 通过Trainer定制训练和验证步
+class Trainer(TrainerBase):
+    def train_step(self, batch_x, batch_y, **step_args):
+        """
+        注意：本方法返回None或者字典（键为指标名，值为封装了数据和指标函数的PatchBase子类对象）
+        """
+        model_out = self.model(*batch_x)
+        self.loss(model_out, batch_y)
+
+        # 记录指标值
+        results = {'m_': TensorPatch(metrics, model_out, batch_y)}
+        return results
+
+    def evaluate_step(self, batch_x, batch_y, **step_args):
+        """
+        注意：本方法返回None或者字典（键为指标名，值为封装了数据和指标函数的PatchBase子类对象）
+        """
+        model_out = self.model(*batch_x)
+        self.loss(model_out, batch_y)
+
+        # 记录指标值
+        results = {'m_': TensorPatch(metrics, model_out, batch_y)}
+        return results
+
+
+trainer = Trainer(model, F.cross_entropy, opt, epochs=2)    # 训练器
+trainer.fit(train_dl, val_dl, do_val_loss=False)            # 训练、验证
+trainer.test(test_dl, do_loss=False)                        # 测试
