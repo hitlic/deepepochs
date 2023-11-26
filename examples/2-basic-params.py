@@ -37,6 +37,8 @@ model = nn.Sequential(
 # 3. --- optimizer
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 
+# model = torch.compile(model)  # 在cpu和cuda下有可能显著提速
+
 # 4. --- train
 trainer = Trainer(
     model=model,                # Pytorch模型（nn.Module）
@@ -45,7 +47,10 @@ trainer = Trainer(
     epochs=2,                   # 训练迭代次数，         默认取值1000
     device='cpu',               # 加速设备，cpu、cuda 或 mps，默认情况下如果存在GPU或mps设备会自动使用
     long_output=False,          # 输出为长格式（7位小数）还是短格式（4位小数）
-    log_batch=True              # 训练过程是，是否每个mini-batch都输出一次指标值
+    log_batch=True,             # 训练过程是，是否每个mini-batch都输出一次指标值
+    metric_patch='tensor',      # 指标累积计算方法，取值为'tensor'或'mean'
+                                #   - tensor 保存每个mini-batch的模型预测和标签计算epoch指标，计算和空间开销大但适用范围广
+                                #   - mean 保存每个mini-batch指标均的值，计算和空间开销小，但部分指标（如precision, recall等）不适用
     )
 
 trainer.fit(

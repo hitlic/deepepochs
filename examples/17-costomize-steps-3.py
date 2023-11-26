@@ -56,7 +56,14 @@ class MyTask(EpochTask):
     def step(self, batch_x, batch_y, **step_args):
         """
         在训练、验证和测试中使用了同一step方法。
-        注意：本方法返回None或者字典（键为指标名，值为封装了数据和指标函数的PatchBase子类对象）
+        Args:
+            batch_x:    一个mini-batch的模型输入
+            batch_y:    一个mini-batch的标签或targets
+            step_args:  当使用EpochTask时，EpochTask的step_args参数
+        Returns:
+            None 
+              或
+            dict: 键为指标名，值为封装了数据和指标函数的PatchBase子类对象
         """
         model_out = self.model(*batch_x)
         self.loss(model_out, batch_y)

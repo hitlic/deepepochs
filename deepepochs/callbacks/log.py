@@ -42,6 +42,8 @@ class LogCallback(Callback):
             self.logger.add_scalar(k, v)
 
     def on_before_fit(self, trainer, epochs):
+        if not trainer.main_process:
+            return
         log_dir = osp.join(self.log_dir, trainer.running_id)
         check_path(log_dir)
         logger = getattr(trainer, 'logger', None)
@@ -53,6 +55,8 @@ class LogCallback(Callback):
 
     def on_before_train_batch(self, trainer, batch_x, batch_y, batch_idx):
         """保存模型结构图"""
+        if not trainer.main_process:
+            return
         if self.log_graph and not self.graph_saved:
             model_input = batch_x if self.example_input is None else self.example_input
             self.graph_saved = True
@@ -62,23 +66,33 @@ class LogCallback(Callback):
                 print("模型结构图保存失败！", e)
 
     def on_after_test_epoch(self, trainer, task, metrics):
+        if not trainer.main_process:
+            return
         if trainer.hyper_params is not None:
             self.log_hparams(trainer.hyper_params, metrics)
 
     def on_after_train_batch(self, trainer, metrics, batch_idx):
         self.global_train_batch_idx += 1
+        if not trainer.main_process:
+            return
         self.log(metrics, 'train', 'batch', self.global_train_batch_idx)
 
     def on_after_train_epoch(self, trainer, task, metrics):
         self.global_train_epoch_idx += 1
+        if not trainer.main_process:
+            return
         self.log(metrics, 'train', 'epoch', self.global_train_epoch_idx)
 
     def on_after_val_batch(self, trainer, metrics, batch_idx):
         self.global_val_batch_idx += 1
+        if not trainer.main_process:
+            return
         self.log(metrics, 'val', 'batch', self.global_val_batch_idx)
 
     def on_after_val_epoch(self, trainer, task, metrics):
         self.global_val_epoch_idx += 1
+        if not trainer.main_process:
+            return
         self.log(metrics, 'val', 'epoch', self.global_val_epoch_idx)
 
     def run_tensorboard(self):

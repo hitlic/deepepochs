@@ -105,9 +105,9 @@ class ValuePatch(PatchBase):
                 vp2()                   # batch 2上的平均扣抽
                 vp()                    # 两个mini-batch的平均损失
         Args:
-            batch_mean_value: 一个mini-batch的平均值，例如平均损失；或者多个mini-batch平均值组成的字典。
-            batch_size: mini-batch的大小
-            name: 显示在输出日志中的名称
+            batch_mean_value:  一个mini-batch的平均值，例如平均损失；或者多个mini-batch平均值组成的字典。
+            batch_size:        mini-batch的大小
+            name:              显示在输出日志中的名称
         """
         super().__init__(name)
         if isinstance(batch_mean_value, dict):

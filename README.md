@@ -85,6 +85,7 @@ trainer.test(test_dl)                                     # 测试
 |17|通过`EpochTask`定制`step`|[examples/17-costomize-steps-3.py](examples/17-costomize-steps-3.py)|
 |18|内置Patch的使用|[examples/18-use_patches.py](examples/18-use_patches.py)|
 |19|自定义Patch|[examples/19-customize-patch.py](examples/19-customize-patch.py)|
+|20|分布式训练、混合精度训练|[examples/20-accelerate.py](examples/20-accelerate.py)|
 
 ### 定制
 
@@ -92,8 +93,8 @@ trainer.test(test_dl)                                     # 测试
     - 第1步：继承`deepepochs.Callback`类，定制满足需要的`Callback`
     - 第2步：使用`deepepochs.Trainer`训练模型，将定制的`Callback`对象作为`Trainer`的`callbacks`参数
 - 方法2（__示例15__）
-    - 第1步：继承`deepepochs.TrainerBase`类定制满足需要的`Trainer`，实现`step`、`train_step`、`val_step`、`test_step`或`evaluate_step`方法
-      - 这些方法有三个参数
+    - 第1步：继承`deepepochs.TrainerBase`类定制满足需要的`Trainer`，实现`step`、`train_step`、`val_step`、`test_step`或`evaluate_step`方法，它们的定义方法完全相同
+      - 参数
           - `batch_x`：     一个mini-batch的模型输入数据
           - `batch_y`：     一个mini-batch的标签
           - `**step_args`：可变参数字典，即`EpochTask`的`step_args`参数

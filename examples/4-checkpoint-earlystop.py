@@ -44,6 +44,7 @@ checker = CheckCallback(
     on_stage='val',         # 监控阶段，取值为 train 或 val
     mode='min',             # 监督模式，取值为 min 或 max
     patience=2,             # Early Stopping容忍次数，小于1表示不启用Early Stopping
+    save_best=False,        # True保存最佳Checkpoint，False保存最新Checkpoint
     ckpt_dir='./logs'       # Checkpoint保存路径
     )
 

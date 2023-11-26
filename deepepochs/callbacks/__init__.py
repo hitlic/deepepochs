@@ -1,4 +1,5 @@
-from .callback import Callback, CallbackPool, DefaultCallback, CallbackException
+from .callback import Callback, CallbackPool, CallbackException
+from .default import DefaultCallback
 from .check import CheckCallback
 from .log import LogCallback
 from .lr_find import LRFindCallback

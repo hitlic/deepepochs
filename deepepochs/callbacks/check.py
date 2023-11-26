@@ -7,7 +7,7 @@ from ..loops import check_path, StopLoopException
 
 
 class CheckCallback(Callback):
-    def __init__(self, monitor, on_stage='val', mode='min', patience=0, ckpt_dir='./logs'):
+    def __init__(self, monitor, on_stage='val', mode='min', patience=0, save_best=True, ckpt_dir='./logs'):
         """
         实现功能：Checkpoint和Early Stop。其中，仅保存监控指标最优Checkpoint。
         Args:
@@ -15,9 +15,11 @@ class CheckCallback(Callback):
             on_stage:  监控目标，'train'或'val'
             mode:      监控指标模式，'max'或'min'
             patience:  Early Stop 容忍指标连续变差的次数，0表示不启用Early Stop
+            save_best: True保存最佳Checkpoint，False保存最新Checkpoint
             ckpt_dir:  最优模型Checkpoint的保存位置
         """
         self.monitor = monitor
+        self.save_best = save_best
         assert on_stage in ['train', 'val'], 'CheckCallback的`on_stage`参数取值为"train"或"val"'
         self.on_stage = on_stage
         self.mode = mode
@@ -31,27 +33,30 @@ class CheckCallback(Callback):
         self.worse_times = 0
         super().__init__(priority=-1)
 
-    def check(self, metrics, model, opt):
+    def check(self, trainer, metrics, model, opt, epoch_idx):
         """
         Reture:
             True:  表示继续执行
             False: 表示达到Early Stop条件
         """
         value = metrics[self.monitor]
+        if not self.save_best:      # 保存最新Checkpoint
+            save_state(trainer, model, opt, self.ckpt_path, best_value=self.best_value, epoch=epoch_idx)
+
         if self.mode == 'max':
-            if  value > self.best_value:
-                self.best_value = value
-                save_state(model, opt, self.ckpt_path, best_value=self.best_value)
-                self.worse_times = 0
-            else:
-                self.worse_times += 1
+            better = value > self.best_value
         else:
-            if value < self.best_value:
-                self.best_value = value
-                save_state(model, opt, self.ckpt_path, best_value=self.best_value)
-                self.worse_times = 0
-            else:
-                self.worse_times += 1
+            better = value < self.best_value
+
+        if better:
+            self.best_value = value
+            self.worse_times = 0
+            if self.save_best:          # 保存最佳Checkpoint
+                save_state(trainer, model, opt, self.ckpt_path, best_value=self.best_value, epoch=epoch_idx)
+        else:
+            self.worse_times += 1
+
+        # Early Stopping
         if self.patience > 0 and self.worse_times >= self.patience:
             return False
         return True
@@ -74,18 +79,18 @@ class CheckCallback(Callback):
     def on_after_epoch(self, trainer, train_tasks, val_tasks, train_metrics, val_metrics, epoch_idx):
         if self.on_stage == 'val':
             if val_tasks and (epoch_idx+1)%val_tasks[0].val_freq==0:
-                self.do_check(trainer, val_metrics)
+                self.do_check(trainer, val_metrics, epoch_idx)
         else:
-            self.do_check(trainer, train_metrics)
+            self.do_check(trainer, train_metrics, epoch_idx)
 
-    def do_check(self, trainer, metrics):
+    def do_check(self, trainer, metrics, epoch_idx):
         if self.monitor in metrics:
             # 创建新的checkpoint路径
             ckpt_dir = osp.join(self.ckpt_dir, trainer.running_id)
             check_path(ckpt_dir)
             self.ckpt_path = osp.join(ckpt_dir, 'checkpoint.ckpt')
             # 检查（保存checkpoint，early stop）
-            if not self.check(metrics, trainer.model, trainer.opt):
+            if not self.check(trainer, metrics, trainer.model, trainer.opt, epoch_idx):
                 raise StopLoopException(f"Early stopping triggered, by monitoring [{self.on_stage} {self.monitor}]!")
         else:
             raise CallbackException(f"CheckCallback: {self.on_stage}阶段的指标中不包含 {self.monitor}!")
@@ -100,21 +105,17 @@ class CheckCallback(Callback):
             print('testing with leatest model.')
 
     def load_state(self, trainer, ckpt_path):
-        other_params = load_state(trainer.model, trainer.opt, ckpt_path)
-        for k, v in other_params.items():
-            setattr(self, k, v)
+        state = torch.load(ckpt_path)
+        trainer.model.load_state_dict(state['model_state'])
+        trainer.opt.load_state_dict(state['opt_state'])
+        # self.best_value = state['best_value']
+        trainer.init_epoch = state['epoch'] + 1
 
 
-def save_state(model, opt, path, **kwargs):
-    state = {'model_state': model.state_dict(), 'opt_state': opt.state_dict(), **kwargs}
+def save_state(trainer, model, opt, path, **kwargs):
+    model_state = model.state_dict()
+    state = {'model_state': model_state,'opt_state': opt.state_dict(), **kwargs}
     torch.save(state, path)
-
-
-def load_state(model, opt, path):
-    state = torch.load(path)
-    model.load_state_dict(state['model_state'])
-    opt.load_state_dict(state['opt_state'])
-    return {k: v for k, v in state.items() if k not in ['model_state', 'opt_state']}
 
 
 def get_latest_running(from_dir):

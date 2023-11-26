@@ -13,92 +13,7 @@ from .callbacks import CallbackPool, DefaultCallback, CallbackException
 from torch.utils.data import DataLoader
 from datetime import datetime
 import time
-
-
-class ModelWrapper:
-    """
-    用于实现回调：
-        on_before_train_forward    on_after_train_forward
-        on_before_val_forward      on_after_val_forward
-        on_before_test_forward     on_after_test_forward
-    """
-    def __init__(self, model, trainer):
-        self.model = model
-        self.trainer = trainer
-        self.stage = None
-
-    def __getattr__(self, name):
-        return getattr(self.model, name)
-
-    def __call__(self, *args, **kwds):
-        self.trainer.callbacks.trigger(f'before_{self.stage}_forward', trainer=self)
-        model_out = self.model(*args, **kwds)
-        self.trainer.callbacks.trigger(f'after_{self.stage}_forward', trainer=self, model_out=model_out)
-        return model_out
-
-    def train(self):
-        self.model.train()
-
-    def eval(self):
-        self.model.eval()
-
-    def to(self, device):
-        self.model = self.model.to(device)
-        return self
-
-    def cpu(self):
-        self.model = self.model.cpu()
-        return self
-
-    def cuda(self):
-        self.model = self.model.cuda()
-        return self
-
-    def parameters(self):
-        return self.model.parameters()
-
-    def modules(self):
-        return self.model.modules()
-
-    def state_dict(self):
-        return self.model.state_dict()
-
-    def load_state_dict(self, state_dict, strict: bool = True, assign: bool = False):
-        self.model.load_state_dict(state_dict, strict, assign)
-
-
-class LossWrapper:
-    """
-    用于自动完成zero_grad、backward、opt.step等操作
-       实现回调： on_train_prediction
-                on_val_prediction
-                on_test_prediction
-                on_before_backward    on_after_backward
-    """
-    def __init__(self, loss_fn, trainer):
-        self.loss_fn = loss_fn
-        self.trainer = trainer
-        self.stage = None
-        self.do_loss = None
-        self.task = None
-
-    def __call__(self, model_out, targets):
-        if self.stage == 'train':
-            self.trainer.opt.zero_grad()
-            loss = self.loss_fn(model_out, targets)
-            self.trainer.callbacks.trigger('before_backward', trainer=self, loss=loss)
-            loss.backward()
-            self.trainer.opt.step()
-            self.trainer.callbacks.trigger('after_backward', trainer=self, loss=loss)
-        else:
-            if self.do_loss:
-                loss = self.loss_fn(model_out, targets)
-            else:
-                loss = None
-        loss = None if loss is None else loss.detach().clone()
-        model_out = TensorTuple(model_out).detach().clone()
-        self.trainer.callbacks.trigger(f'{self.stage}_prediction', trainer=self.trainer, loss=loss, model_out=model_out, targets=targets, task=self.task)
-        return loss
+from accelerate import Accelerator
 
 
 class EpochTask:
@@ -119,7 +34,7 @@ class EpochTask:
         self.stage = None
         self.val_freq = None
         self.step_args = step_args
-        self.batch_patch_dict = None   # 由DefaultCallback中的on_train/val/test_prediction回调注入
+        self.batch_patch_dict = {}   # 由DefaultCallback中的on_train/val/test_prediction回调注入
 
     def __len__(self):
         return self.batchs
@@ -183,16 +98,108 @@ class EpochTask:
                     patch_dict = {}
 
                 self.batch_patch_dict.update(patch_dict)
-
                 epoch_patch_dicts.append(self.batch_patch_dict)
 
                 # 计算当前batch的指标
                 batch_metric_values = flatten_dict(run_patch_dict(self.batch_patch_dict), sep='')
                 self.callbacks.trigger(f'after_{self.stage}_batch', trainer=self.trainer, metrics=batch_metric_values, batch_idx=batch_idx)
+                # 清空 self.batch_patch_dict
+                self.batch_patch_dict = {}
+
             # 计算当前epoch的指标
             epoch_metrics_values = flatten_dict(run_patch_dicts(epoch_patch_dicts), sep='')
             self.callbacks.trigger(f'after_{self.stage}_epoch', trainer=self.trainer, task=self, metrics=epoch_metrics_values)
             return epoch_metrics_values
+
+
+class ModelWrapper:
+    """
+    用于实现回调：
+        on_before_train_forward    on_after_train_forward
+        on_before_val_forward      on_after_val_forward
+        on_before_test_forward     on_after_test_forward
+    """
+    def __init__(self, model, trainer):
+        # self.model = torch.compile(model)
+        self.model = model
+        self.trainer = trainer
+        self.stage = None
+
+    def __getattr__(self, name):
+        return getattr(self.model, name)
+
+    def __call__(self, *args, **kwds):
+        self.trainer.callbacks.trigger(f'before_{self.stage}_forward', trainer=self)
+        model_out = self.model(*args, **kwds)
+        self.trainer.callbacks.trigger(f'after_{self.stage}_forward', trainer=self, model_out=model_out)
+        return model_out
+
+    def train(self):
+        self.model.train()
+
+    def eval(self):
+        self.model.eval()
+
+    def to(self, device):
+        self.model = self.model.to(device)
+        return self
+
+    def cpu(self):
+        self.model = self.model.cpu()
+        return self
+
+    def cuda(self):
+        self.model = self.model.cuda()
+        return self
+
+    def parameters(self):
+        return self.model.parameters()
+
+    def modules(self):
+        return self.model.modules()
+
+    def state_dict(self):
+        return self.model.state_dict()
+
+    def load_state_dict(self, state_dict):
+        self.model.load_state_dict(state_dict)
+
+
+class LossWrapper:
+    """
+    用于自动完成zero_grad、backward、opt.step等操作
+       实现回调： on_train_prediction
+                on_val_prediction
+                on_test_prediction
+                on_before_backward    on_after_backward
+    """
+    def __init__(self, loss_fn, trainer):
+        self.loss_fn = loss_fn
+        self.trainer = trainer
+        self.stage = None
+        self.do_loss = None
+        self.task = None
+
+    def __call__(self, model_out, targets):
+        if self.stage == 'train':
+            self.trainer.opt.zero_grad()
+            loss = self.loss_fn(model_out, targets)
+            self.trainer.callbacks.trigger('before_backward', trainer=self, loss=loss)
+            if self.trainer.accelerator is None:
+                loss.backward()
+            else:       # accelerate的backward
+                self.trainer.accelerator.backward(loss)
+            self.trainer.opt.step()
+            self.trainer.callbacks.trigger('after_backward', trainer=self, loss=loss)
+        else:
+            if self.do_loss:
+                loss = self.loss_fn(model_out, targets)
+            else:
+                loss = None
+        loss = None if loss is None else loss.detach().clone()
+        model_out = TensorTuple(model_out).detach().clone()
+        self.trainer.callbacks.trigger(f'{self.stage}_prediction', trainer=self.trainer, loss=loss, model_out=model_out, targets=targets, task=self.task)
+        return loss
 
 
 class TrainerBase:
@@ -209,6 +216,7 @@ class TrainerBase:
                  hyper_params=None,
                  long_output=False,
                  log_batch=True,
+                 compile_model=False,
                  ):
         """
         Args:
@@ -216,7 +224,9 @@ class TrainerBase:
             loss:                           损失函数
             opt:                            优化器，或优化器列表；优化器是Pytorch优化器或deepepochs.Optimizer对象
             epochs [int]:                   迭代次数
-            device [str]:                   cpu、cuda 或 mps
+            device [str]:                   加速设备，可取值包括
+                                                - cpu、cuda、mps等Pytorch支持的设备
+                                                - Accelerator对象，利用Hugging Face Accelerate实现多机多卡或混合精度训练
             callbacks [List[Callback]]:     Callback或Callback列表。
             metrics [Callable]:             指标函数列表；通用于训练、验证和测试。
             metric_patch [PatchBase]:       封装metrics所用的Patch类型，可选项为 mean 或 tensor
@@ -228,18 +238,36 @@ class TrainerBase:
             hyper_params [dict, None]:      调参所关注的重要超参数，用于写入日志文件辅助调参
             long_output [bool]:             指标输出为长格式（7位小数）还是短格式（4位小数）
             log_batch [bool]:               训练过程中是否每个batch输出一次指标值
+            compile_model [bool]:           利用PyTorch 2.x对模型compile以提升速度（暂不支持mps、Windows [v2.1]）
         """
         # 检测与配置加速设备
         if device is not None:
             self.device = device
         elif torch.cuda.is_available():
             self.device = 'cuda'
-        elif torch.backends.mps.is_available():
+        elif torch.backends.mps.is_available() and not compile_model:
             self.device = 'mps'
         else:
             self.device = 'cpu'
 
+        # Pytorch支持的设备类型
+        device_types = ['cpu', 'cuda', 'ipu', 'xpu', 'mkldnn', 'opengl', 'opencl',
+                        'ideep', 'hip', 've', 'fpga', 'ort', 'xla', 'lazy', 'vulkan',
+                        'mps', 'meta', 'hpu', 'mtia', 'privateuseone']
+
+        # 使用Accelerate，用于实现分布式或混合精度训练
+        if isinstance(self.device, Accelerator):
+            self.accelerator = self.device
+            self.device = self.accelerator.device
+            self.main_process = self.accelerator.is_main_process  # 是否主进程
+        else:
+            assert self.device in device_types, f'Pytorch不支持的{self.device}设备！\nPytorch支持的设备有：{device_types}'
+            self.accelerator = None
+            self.main_process = True
+
         # 配置模型
+        if compile_model:
+            model = torch.compile(model)
         self.model = ModelWrapper(model, self).to(self.device)
 
         # 配置损失函数
@@ -263,7 +291,9 @@ class TrainerBase:
             raise ValueError('`opt`参数取值错误！')
 
         # 迭代次数
-        self.epochs = epochs
+        self.max_epochs = epochs
+        # 起始迭代
+        self.init_epoch = 0
 
         # 配置Callbacks
         callbacks = listify(callbacks)
@@ -312,13 +342,22 @@ class TrainerBase:
             train_tasks:    训练任务（EpochTask对象）列表
             val_tasks:      验证任务（EpochTask对象）列表；当需要在多个验证数据集上进行不同指标的验证时，将数据和指标封装为EpochTask
         """
-        print('=' * 50)
-        # print(f'{"DeepEpochs":^50}')
-        print(datetime.now())
-        print(f'running ID: {self.running_id}')
-        param_size = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-        print(f'parameters: {param_size}')
-        print('-' * 50)
+        if self.main_process:
+            print('=' * 50)
+            print(datetime.now())
+            if self.accelerator is None:
+                print(f"{'device:':<12} {self.device}")
+            else:  # Accerate训练下的设备信息
+                if self.accelerator.distributed_type == 'NO':  # 单进程Accerate
+                    print(f"{'device:':<12} Accelerate-{self.device}")
+                else:   # 分布式训练-类型-进程数量
+                    print(f"{'device:':<12} Accelerate-{self.accelerator.distributed_type}-{self.accelerator.num_processes}")
+
+            print(f"{'running ID:':<12} {self.running_id}")
+            param_size = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+            print(f"{'parameters:':<12} {param_size}")
+            print('-' * 50)
+
         assert not (train_dl is None and train_tasks is None), '`Trainer.fit`方法中，`train_dl`参数和`train_tasks`参数只能有一个为None！'
         assert not (train_dl is not None and train_tasks is not None), '`Trainer.fit`方法中，`train_dl`参数和`train_tasks`参数只能有一个不为None！'
 
@@ -347,9 +386,9 @@ class TrainerBase:
         progress = defaultdict(list)
 
         # Fit
-        self.callbacks.trigger('before_fit', trainer=self, epochs=self.epochs)
+        self.callbacks.trigger('before_fit', trainer=self, epochs=self.max_epochs)
         try:
-            for epoch_idx in range(self.epochs):
+            for epoch_idx in range(self.init_epoch, self.max_epochs):
                 self.callbacks.trigger('before_epoch', trainer=self, train_tasks=train_tasks, val_tasks=val_tasks, epoch_idx=epoch_idx)
                 # 训练
                 train_metric_values = {}
@@ -371,13 +410,17 @@ class TrainerBase:
                     progress['val'].append(val_metric_values)
                 self.callbacks.trigger('after_epoch', trainer=self, train_tasks=train_tasks, val_tasks=val_tasks, train_metrics=train_metric_values, val_metrics=val_metric_values, epoch_idx=epoch_idx)
         except KeyboardInterrupt:
-            print('\nStop trainning manually!')
+            if self.main_process:
+                print('\nStop trainning manually!')
         except StopLoopException as e:
-            print('\n', e, sep='')
+            if self.main_process:
+                print('\n', e, sep='')
         except LoopException as e:
-            print('\t', e, sep='')
+            if self.main_process:
+                print('\t', e, sep='')
         except CallbackException as e:
-            print('\t', e, sep='')
+            if self.main_process:
+                print('\t', e, sep='')
 
         self.callbacks.trigger('after_fit', trainer=self)
         return {k: concat_dicts(v) for k, v in progress.items()}
@@ -395,7 +438,8 @@ class TrainerBase:
             tasks:   测试任务（EpochTask对象）列表；当需要在多个测试数据集上进行不同指标的测试时，将数据和指标封装为EpochTask
         """
         assert not (test_dl is None and tasks is None), '`Trainer.test`方法中，`train_dl`参数和`task`参数不能同时为None！'
-        print('-'*50)
+        if self.main_process:
+            print('-'*50)
         # 使用Trainer.__init__中定义的通用指标
         self.test_metrics = [m for m in listify(metrics) if m not in self.general_metrics] + self.general_metrics
 
@@ -418,20 +462,35 @@ class TrainerBase:
             self.callbacks.trigger('after_test_epochs', trainer=self, tasks=test_tasks, metrics=test_metric_values)
             return to_numpy(test_metric_values)
         except LoopException as e:
-            print('\n', e, sep='')
+            if self.main_process:
+                print('\n', e, sep='')
         return {}
 
     def train_step(self, batch_x, batch_y, **step_args):
         """
         TODO: 非常规训练可修改本方法中的代码。
-        注意：本方法返回一个字典，键为指标名，值为封装了数据的ValuePatch或者Patch。
+        Args:
+            batch_x:    一个mini-batch的模型输入
+            batch_y:    一个mini-batch的标签或targets
+            step_args:  当使用EpochTask时，EpochTask的step_args参数
+        Returns:
+            None 
+              或
+            dict: 键为指标名，值为封装了数据和指标函数的PatchBase子类对象
         """
         raise NotImplementedError("`Trainer.train_step`方法未实现！")
 
     def evaluate_step(self,batch_x, batch_y, **step_args):
         """
         TODO: 非常规验证或测试可修改本方法中的代码。也可以定义val_step方法或test_step方法。
-        注意：本方法返回一个字典，键为指标名，值为封装了数据的ValuePatch或者Patch。
+        Args:
+            batch_x:    一个mini-batch的模型输入
+            batch_y:    一个mini-batch的标签或targets
+            step_args:  当使用EpochTask时，EpochTask的step_args参数
+        Returns:
+            None 
+              或
+            dict: 键为指标名，值为封装了数据和指标函数的PatchBase子类对象
         """
         raise NotImplementedError("`Trainer.evaluate_step`方法未实现！")
 
@@ -444,9 +503,17 @@ class Trainer(TrainerBase):
                    ) -> Dict[str, PatchBase]:
         """
         TODO: 非常规训练可修改本方法中的代码。
-        注意：本方法返回None或者字典（键为指标名，值为封装了数据和指标函数的PatchBase子类对象）
+        Args:
+            batch_x:    一个mini-batch的模型输入
+            batch_y:    一个mini-batch的标签或targets
+            step_args:  当使用EpochTask时，EpochTask的step_args参数
+        Returns:
+            None 
+              或
+            dict: 键为指标名，值为封装了数据和指标函数的PatchBase子类对象
         """
         model_out = self.model(*batch_x)
+        # self.loss是对Trainer中loss参数的封装，会自动调用opt.zero_grad、loss.backward、opt.step等方法
         self.loss(model_out, batch_y)
 
 
@@ -456,8 +523,17 @@ class Trainer(TrainerBase):
                       **step_args
                       ) -> Dict[str, PatchBase]:
         """
-        TODO: 非常规验证或测试可修改本方法中的代码。
-        注意：本方法返回None或者字典（键为指标名，值为封装了数据和指标函数的PatchBase子类对象）
+        TODO: 非常规验证或测试可修改本方法中的代码。也可以定义val_step方法或test_step方法。
+        Args:
+            batch_x:    一个mini-batch的模型输入
+            batch_y:    一个mini-batch的标签或targets
+            step_args:  当使用EpochTask时，EpochTask的step_args参数
+        Returns:
+            None 
+              或
+            dict: 键为指标名，值为封装了数据和指标函数的PatchBase子类对象
         """
+        # self.model是对Trainer中model参数的封装，
         model_out = self.model(*batch_x)
+        # self.loss是对Trainer中loss参数的封装，会自动调用opt.zero_grad、loss.backward、opt.step等方法
         self.loss(model_out, batch_y)
