@@ -184,7 +184,6 @@ class LossWrapper:
     def __call__(self, model_out, targets):
         self.trainer.callbacks.trigger(f'before_{self.stage}_loss', trainer=self.trainer, model_out=model_out, targets=targets, task=self.task)
         if self.stage == 'train':
-            self.trainer.opt.zero_grad()
             loss = self.loss_fn(model_out, targets)
             self.trainer.callbacks.trigger('before_backward', trainer=self, loss=loss)
             if self.trainer.accelerator is None:
@@ -192,6 +191,7 @@ class LossWrapper:
             else:       # accelerate的backward
                 self.trainer.accelerator.backward(loss)
             self.trainer.opt.step()
+            self.trainer.opt.zero_grad()
             self.trainer.callbacks.trigger('after_backward', trainer=self, loss=loss)
         else:
             if self.do_loss:
@@ -574,7 +574,7 @@ class GradAccumulateTask(EpochTask):
         total_loss = 0
         model_out_s = []
 
-        if self.trainer.accelerator is not None and self.stage == 'train':  # 使用accelerate实现
+        if self.trainer.accelerator is not None and self.stage == 'train':  # --- accelerate实现
             for sub_batch_x, sub_batch_y in zip(batches(batch_x, self.sub_batch_size), batches(batch_y, self.sub_batch_size)):
                 with self.trainer.accelerator.accumulate(self.trainer.model.model):
                     model_out = self.model(*sub_batch_x)
@@ -584,8 +584,7 @@ class GradAccumulateTask(EpochTask):
                     self.trainer.opt.step()
                     self.trainer.opt.zero_grad()
                     total_loss += loss.detach().clone() * batch_size(sub_batch_x)
-                    sub_loss = loss/self.accumulate_steps
-        else:                                                               # 实现
+        else:                                                               # --- Deepepochs实现
             for sub_batch_x, sub_batch_y in zip(batches(batch_x, self.sub_batch_size), batches(batch_y, self.sub_batch_size)):
                 model_out = self.model(*sub_batch_x)
                 model_out_s.append(model_out)

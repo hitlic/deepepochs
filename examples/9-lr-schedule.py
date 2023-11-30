@@ -7,7 +7,7 @@ from torch.nn import functional as F
 from torchvision.datasets import MNIST
 from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
-from deepepochs import Trainer, Optimizer
+from deepepochs import Trainer, Optimizer, LogCallback
 
 
 data_dir = './datasets'
@@ -32,8 +32,10 @@ model = nn.Sequential(
     nn.Linear(64, 10)
 )
 
-opt = torch.optim.Adam(model.parameters(), lr=2e-4)
-sched = torch.optim.lr_scheduler.StepLR(opt, step_size=10000, gamma=0.1)
+epoch_num =10
+
+opt = torch.optim.Adam(model.parameters(), lr=2e-2)
+sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, epoch_num*len(train_dl), 0.001)
 opt = Optimizer(
     opt=opt,                # 优化器
     scheduler=sched,        # 调度器
@@ -41,6 +43,9 @@ opt = Optimizer(
     sched_with_loss=False   # 调度器在调度时是否需要以loss为参数（例如ReduceLROnPlateau）
     )
 
-trainer = Trainer(model, F.cross_entropy, opt, epochs=2)
+loger = LogCallback()
+trainer = Trainer(model, F.cross_entropy, opt, epochs=epoch_num, callbacks=[loger])
 trainer.fit(train_dl, val_dl)
 trainer.test(test_dl)
+
+loger.run_tensorboard()

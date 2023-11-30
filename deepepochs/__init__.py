@@ -2,7 +2,7 @@
 @author: hitlic
 TODO:
 """
-__version__ = '0.5.10.2'
+__version__ = '0.5.11'
 
 from .loops import *
 from .trainer import Trainer, TrainerBase, EpochTask, GradAccumulateTask

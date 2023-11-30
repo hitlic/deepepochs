@@ -65,6 +65,20 @@ class LogCallback(Callback):
             except Exception as e:
                 print("模型结构图保存失败！", e)
 
+        # 记录学习率
+        self.log(self.lr_dict(trainer), 'train', 'batch', self.global_train_batch_idx)
+
+    def lr_dict(self, trainer):
+        current_lr = trainer.opt.get_current_lr()
+        if isinstance(current_lr, (list, tuple)):
+            lr_dict = {f'learning_rate_{i}': lr  for i, lr in enumerate(current_lr)}
+        else:
+            lr_dict = {'learning_rate': current_lr}
+        return lr_dict
+
+    def on_before_train_epoch(self, trainer, task):
+        self.log(self.lr_dict(trainer), 'train', 'epoch', self.global_train_epoch_idx)
+
     def on_after_test_epoch(self, trainer, task, metrics):
         if not trainer.main_process:
             return
