@@ -45,7 +45,7 @@ def run_patch_dicts(patch_dicts):
     """
     if len(patch_dicts) == 0:
         return None
-    return {patch_name(k, patch_dicts[0][k]): sum(dic[k] for dic in patch_dicts)() for k in keyset(patch_dicts)}
+    return {patch_name(k, patch_dicts[0][k]): sum(dic[k] for dic in patch_dicts if dic)() for k in keyset(patch_dicts)}
 
 
 class PatchBase(abc.ABC):

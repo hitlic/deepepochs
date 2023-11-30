@@ -86,6 +86,7 @@ trainer.test(test_dl)                                     # 测试
 |18|内置Patch的使用|[examples/18-use_patches.py](examples/18-use_patches.py)|
 |19|自定义Patch|[examples/19-customize-patch.py](examples/19-customize-patch.py)|
 |20|分布式训练、混合精度训练|[examples/20-accelerate.py](examples/20-accelerate.py)|
+|21|累积梯度更新|[examples/21-grad-accumulate.py](examples/21-grad-accumulate.py)|
 
 ### 定制
 

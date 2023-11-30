@@ -74,15 +74,15 @@ class InterpreteCallback(Callback):
         else:
             self.confusion_matrix += confusion_matrix(model_out, self.batch_y, self.class_num)
 
-    def on_after_train_forward(self, trainer, model_out):
+    def on_after_train_loss(self, trainer, loss, model_out, targets, task):
         if 'train' in self.stages:
             self.update_confusion_matrix(model_out)
 
-    def on_after_val_forward(self, trainer, model_out):
+    def on_after_val_loss(self, trainer, loss, model_out, targets, task):
         if 'val' in self.stages:
             self.update_confusion_matrix(model_out)
 
-    def on_after_test_forward(self, trainer, model_out):
+    def on_after_test_loss(self, trainer, loss, model_out, targets, task):
         if 'test' in self.stages:
             self.put_queue(model_out, self.batch_y, self.batch_x)
             self.update_confusion_matrix(model_out)

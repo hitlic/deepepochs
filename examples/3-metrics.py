@@ -67,10 +67,10 @@ trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=2,
                   )
 
 progress = trainer.fit(train_dl, val_dl,
-                        metrics=[multi_metrics],      # 2. 在训练和验证中使用的指标
+                        metrics=[multi_metrics],        # 2. 在训练和验证中使用的指标
                         train_metrics=[multi_metrics],  # 3. 仅在训练中使用的指标
                         val_metrics=[multi_metrics]     # 4. 仅在验证中使用的指标
                         )
 test_rst = trainer.test(test_dl,
-                        metrics=[recall]                # 3. 仅在测试中使用的指标
+                        metrics=[recall]                # 5. 仅在测试中使用的指标
                         )

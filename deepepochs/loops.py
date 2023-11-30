@@ -93,6 +93,13 @@ class ddict(dict):
         return deepcopy(dd)
 
 
+def concat(datas):
+    if isinstance(datas[0], (list, tuple)):
+        return TensorTuple([torch.concat(ds, dim=0) if ds[0].dim()> 1 else torch.concat(ds) for ds in zip(*datas)])
+    else:
+        return torch.concat(datas, dim=0) if datas[0].dim() > 1 else torch.concat(datas)
+
+
 class TensorTuple(tuple):
     """
     tuple of tensors
@@ -161,16 +168,20 @@ def log_batch(metrics, epoch_idx, epochs, batch_idx, batchs, stage, epoch_width=
         batch_width: batch的显示宽度
         round_to:    指标值的小说保留位数
     """
+    if not metrics:  # metrics为空则不输出
+        return
     batch_info = info(metrics, round_to)
     epoch_width = 4 if epoch_width==0 else epoch_width
     batch_width = 4 if batch_width==0 else batch_width
     epoch_idx, epochs = str(epoch_idx).rjust(epoch_width), str(epochs).ljust(epoch_width)
     batch_idx, batchs = str(batch_idx).rjust(batch_width), str(batchs).ljust(batch_width)
-    print_out(f'E {epoch_idx}/{epochs}  B {batch_idx}/{batchs}  {stage}> {batch_info}', end='')
+    print_out(f'E {epoch_idx}/{epochs}  B {batch_idx}/{batchs}  {stage}> {batch_info}{" "*20}', end='   ')
 
 
 def log_epoch(stages_metrics, epoch_idx, epochs, epoch_width=0, round_to=4):
     """输出epoch指标值"""
+    if not stages_metrics:  # stages_metrics为空则不输出
+        return
     epoch_width = 4 if epoch_width==0 else epoch_width
     epoch_idx, epochs = str(epoch_idx).rjust(epoch_width), str(epochs).ljust(epoch_width)
 
@@ -183,10 +194,10 @@ def log_epoch(stages_metrics, epoch_idx, epochs, epoch_width=0, round_to=4):
         if val_metrics is not None:
             val_info = info(val_metrics, round_to)
             val_info = '  VAL> ' + val_info
-        print_out(f'E {epoch_idx}/{epochs}  TRAIN> {train_info}{val_info}')
+        print_out(f'E {epoch_idx}/{epochs}  TRAIN> {train_info}{val_info}', end='   \n')  # 清除光标至行末字符
     elif test_metrics is not None:
         test_info = info(test_metrics, round_to)
-        print_out(f'E {epoch_idx}/{epochs}  TEST> {test_info}')
+        print_out(f'E {epoch_idx}/{epochs}  TEST> {test_info}{" "*20}', end='   \n')  # 清除光标至行末字符
     else:
         raise ValueError("log_epoch 参数错误!")
 
@@ -198,9 +209,9 @@ def info(m_dict, round_to):
     return ' '.join([f'{k:>}: {v_str(v):<}' for k, v in m_dict.items()])
 
 
-def print_out(content, end='\r\n'):
-    print('\x1b[1K\r', end='')
-    print(content, flush=True, end=end)
+def print_out(content, end='\n'):
+    print(end='\x1b[2K\r')  # \x1b[1K 清除行首至光标位置字符
+    print(content, flush=True, sep='', end=end)
 
 
 def concat_dicts(dicts, to_np=True):

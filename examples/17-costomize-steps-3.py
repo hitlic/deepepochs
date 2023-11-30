@@ -74,7 +74,7 @@ class MyTask(EpochTask):
 
 train_task = MyTask(train_dl)
 val_task = MyTask(val_dl, do_loss=False)
-test_task = MyTask(test_dl)
+test_task = MyTask(test_dl, do_loss=False)
 
 trainer.fit(train_tasks=train_task, val_tasks=val_task)                 # 使用Task
 trainer.test(tasks=test_task)                                           # 使用Task

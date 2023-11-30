@@ -21,9 +21,10 @@ class Callback:
                         on_before_train_batch
                             on_before_train_forward
                             on_after_train_forward
-                            on_before_backward
-                            on_after_backward
-                            on_train_prediction
+                            on_before_train_loss
+                                on_before_backward
+                                on_after_backward
+                            on_after_train_loss
                         on_after_train_batch
                         ...
                     on_after_train_epoch
@@ -34,7 +35,8 @@ class Callback:
                         on_before_val_batch
                             on_before_val_forward
                             on_after_val_forward
-                            on_val_prediction
+                            on_before_val_loss
+                            on_after_val_loss
                         on_after_val_batch
                         ...
                     on_after_val_epoch
@@ -48,7 +50,8 @@ class Callback:
                 on_before_test_batch
                     on_before_test_forward
                     on_after_test_forward
-                    on_test_prediction
+                    on_before_test_loss
+                    on_after_test_loss
                 on_after_test_batch
                 ...
             on_after_test_epoch
@@ -117,19 +120,30 @@ class Callback:
             model_out:  模型前向预测输出
         """
 
+    def on_before_train_loss(self, trainer, model_out, targets, task):
+        """
+        Args:
+            trainer:    Trainer
+            model_out:  模型前向预测输出
+            targets:    标签
+            task:       当前的EpochTask
+        """
+
     def on_before_backward(self, trainer, loss):
         """
         Args:
             trainer:  Trainer
+            loss:     loss
         """
 
     def on_after_backward(self, trainer, loss):
         """
         Args:
             trainer:  Trainer
+            loss:     loss
         """
 
-    def on_train_prediction(self, trainer, loss, model_out, targets, task):
+    def on_after_train_loss(self, trainer, loss, model_out, targets, task):
         """
         Args:
             trainer:    Trainer
@@ -201,7 +215,16 @@ class Callback:
             model_out:  模型前向预测输出
         """
 
-    def on_val_prediction(self, trainer, loss, model_out, targets, task):
+    def on_before_val_loss(self, trainer, model_out, targets, task):
+        """
+        Args:
+            trainer:    Trainer
+            model_out:  模型前向预测输出
+            targets:    标签
+            task:       当前的EpochTask
+        """
+
+    def on_after_val_loss(self, trainer, loss, model_out, targets, task):
         """
         Args:
             trainer:    Trainer
@@ -285,7 +308,16 @@ class Callback:
             model_out:  模型前向预测输出
         """
 
-    def on_test_prediction(self, trainer, loss, model_out, targets, task):
+    def on_before_test_loss(self, trainer, model_out, targets, task):
+        """
+        Args:
+            trainer:    Trainer
+            model_out:  模型前向预测输出
+            targets:    标签
+            task:       当前的EpochTask
+        """
+
+    def on_after_test_loss(self, trainer, loss, model_out, targets, task):
         """
         Args:
             trainer:    Trainer

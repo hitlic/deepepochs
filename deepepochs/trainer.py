@@ -5,7 +5,8 @@ from typing import List, Dict, Callable
 import torch
 from torch.optim import Adam
 from .loops import (StopLoopException, LoopException, TensorTuple,
-                    flatten_dict, default_loss, concat_dicts, to_numpy, listify)
+                    flatten_dict, default_loss, concat_dicts, to_numpy, listify, batch_size, concat)
+from .tools import batches
 from .optimizer import Optimizer, Optimizers
 from .patches import PatchBase, MeanPatch, TensorPatch, run_patch_dict, run_patch_dicts
 from collections import defaultdict
@@ -181,6 +182,7 @@ class LossWrapper:
         self.task = None
 
     def __call__(self, model_out, targets):
+        self.trainer.callbacks.trigger(f'before_{self.stage}_loss', trainer=self.trainer, model_out=model_out, targets=targets, task=self.task)
         if self.stage == 'train':
             self.trainer.opt.zero_grad()
             loss = self.loss_fn(model_out, targets)
@@ -198,7 +200,8 @@ class LossWrapper:
                 loss = None
         loss = None if loss is None else loss.detach().clone()
         model_out = TensorTuple(model_out).detach().clone()
-        self.trainer.callbacks.trigger(f'{self.stage}_prediction', trainer=self.trainer, loss=loss, model_out=model_out, targets=targets, task=self.task)
+        model_out = model_out[0] if len(model_out)==1 else model_out
+        self.trainer.callbacks.trigger(f'after_{self.stage}_loss', trainer=self.trainer, loss=loss, model_out=model_out, targets=targets, task=self.task)
         return loss
 
 
@@ -261,7 +264,7 @@ class TrainerBase:
             self.device = self.accelerator.device
             self.main_process = self.accelerator.is_main_process  # 是否主进程
         else:
-            assert self.device in device_types, f'Pytorch不支持的{self.device}设备！\nPytorch支持的设备有：{device_types}'
+            assert str(self.device).split(':')[0] in device_types, f'Pytorch不支持的{self.device}设备！\nPytorch支持的设备有：{device_types}'
             self.accelerator = None
             self.main_process = True
 
@@ -342,21 +345,20 @@ class TrainerBase:
             train_tasks:    训练任务（EpochTask对象）列表
             val_tasks:      验证任务（EpochTask对象）列表；当需要在多个验证数据集上进行不同指标的验证时，将数据和指标封装为EpochTask
         """
-        if self.main_process:
-            print('=' * 50)
-            print(datetime.now())
-            if self.accelerator is None:
-                print(f"{'device:':<12} {self.device}")
-            else:  # Accerate训练下的设备信息
-                if self.accelerator.distributed_type == 'NO':  # 单进程Accerate
-                    print(f"{'device:':<12} Accelerate-{self.device}")
-                else:   # 分布式训练-类型-进程数量
-                    print(f"{'device:':<12} Accelerate-{self.accelerator.distributed_type}-{self.accelerator.num_processes}")
-
-            print(f"{'running ID:':<12} {self.running_id}")
-            param_size = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-            print(f"{'parameters:':<12} {param_size}")
-            print('-' * 50)
+        self.print('=' * 50)
+        self.print(datetime.now())
+        if self.accelerator is None:
+            self.print(f"{'device:':<12} {self.device}")
+        else:  # Accerate训练下的设备信息
+            if self.accelerator.distributed_type == 'NO':  # 单进程Accerate
+                self.print(f"{'device:':<12} Accelerate-{self.device}")
+            else:   # 分布式训练-类型-进程数量
+                self.print(f"{'device:':<12} Accelerate-{self.accelerator.distributed_type}-{self.accelerator.num_processes}")
+                self.print(' '*12, "**Note: Training metrics are only calculated in the main process!")
+        self.print(f"{'running ID:':<12} {self.running_id}")
+        param_size = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        self.print(f"{'parameters:':<12} {param_size}")
+        self.print('-' * 50)
 
         assert not (train_dl is None and train_tasks is None), '`Trainer.fit`方法中，`train_dl`参数和`train_tasks`参数只能有一个为None！'
         assert not (train_dl is not None and train_tasks is not None), '`Trainer.fit`方法中，`train_dl`参数和`train_tasks`参数只能有一个不为None！'
@@ -462,9 +464,12 @@ class TrainerBase:
             self.callbacks.trigger('after_test_epochs', trainer=self, tasks=test_tasks, metrics=test_metric_values)
             return to_numpy(test_metric_values)
         except LoopException as e:
-            if self.main_process:
-                print('\n', e, sep='')
+            self.print('\n', e, sep='')
         return {}
+
+    def print(self, *args, **kwargs):
+        if self.main_process:
+            print(*args, **kwargs)
 
     def train_step(self, batch_x, batch_y, **step_args):
         """
@@ -516,7 +521,6 @@ class Trainer(TrainerBase):
         # self.loss是对Trainer中loss参数的封装，会自动调用opt.zero_grad、loss.backward、opt.step等方法
         self.loss(model_out, batch_y)
 
-
     def evaluate_step(self,
                       batch_x:[torch.Tensor, List[torch.Tensor]],
                       batch_y:[torch.Tensor, List[torch.Tensor]],
@@ -537,3 +541,68 @@ class Trainer(TrainerBase):
         model_out = self.model(*batch_x)
         # self.loss是对Trainer中loss参数的封装，会自动调用opt.zero_grad、loss.backward、opt.step等方法
         self.loss(model_out, batch_y)
+
+
+class GradAccumulateTask(EpochTask):
+    """
+    实现了累积梯度更新的Task
+    """
+    def __init__(self, dataloader, accumulate_steps=None, metrics=None, do_loss=True, **step_args):
+        """
+        Args:
+            dataloader:       pytorch Dataloader
+            accumulate_steps: 梯度累积步数
+            metrics:          指标函数列表
+            do_loss:          验证和测试中是否计算据损失
+            step_args:        其他需要传递给`step`、`train_step`、`val_step`、`test_step`和`evaluate`方法的参数
+        """
+        super().__init__(dataloader, metrics, do_loss, **step_args)
+        self.dl_batch_size = dataloader.batch_size
+        self.accumulate_steps = accumulate_steps
+
+    def check(self):
+        # 优先使用accelerator中定义的累积步数
+        if self.trainer.accelerator is not None:
+            self.accumulate_steps = self.trainer.accelerator.gradient_accumulation_steps
+        if self.dl_batch_size % self.accumulate_steps != 0:
+            raise LoopException("batch_size必须能被accumulate_steps整除！")
+        self.sub_batch_size = self.dl_batch_size//self.accumulate_steps
+
+    def step(self, batch_x, batch_y):
+        self.check()
+        loss_fn = self.trainer.loss.loss_fn
+        total_loss = 0
+        model_out_s = []
+
+        if self.trainer.accelerator is not None and self.stage == 'train':  # 使用accelerate实现
+            for sub_batch_x, sub_batch_y in zip(batches(batch_x, self.sub_batch_size), batches(batch_y, self.sub_batch_size)):
+                with self.trainer.accelerator.accumulate(self.trainer.model.model):
+                    model_out = self.model(*sub_batch_x)
+                    model_out_s.append(model_out)
+                    loss = loss_fn(model_out, sub_batch_y)
+                    self.trainer.accelerator.backward(loss)
+                    self.trainer.opt.step()
+                    self.trainer.opt.zero_grad()
+                    total_loss += loss.detach().clone() * batch_size(sub_batch_x)
+                    sub_loss = loss/self.accumulate_steps
+        else:                                                               # 实现
+            for sub_batch_x, sub_batch_y in zip(batches(batch_x, self.sub_batch_size), batches(batch_y, self.sub_batch_size)):
+                model_out = self.model(*sub_batch_x)
+                model_out_s.append(model_out)
+                if self.do_loss:
+                    loss = loss_fn(model_out, sub_batch_y)
+                    sub_loss = loss/self.accumulate_steps
+                    total_loss += loss.detach().clone() * batch_size(sub_batch_x)
+                if self.stage == 'train':
+                    sub_loss.backward()
+            if self.stage == 'train':
+                self.trainer.opt.step()
+                self.trainer.opt.zero_grad()
+
+        avg_loss = total_loss/batch_size(batch_x) if self.do_loss else None
+        model_outs = concat(model_out_s)
+        self.trainer.callbacks.trigger(f'before_{self.stage}_loss', trainer=self.trainer, model_out=model_outs, targets=batch_y, task=self)
+        if self.stage == 'train':
+            self.trainer.callbacks.trigger('after_backward', trainer=self, loss=avg_loss)
+            self.trainer.callbacks.trigger('before_backward', trainer=self, loss=avg_loss)
+        self.trainer.callbacks.trigger(f'after_{self.stage}_loss', trainer=self.trainer, loss=avg_loss, model_out=model_outs, targets=batch_y, task=self)

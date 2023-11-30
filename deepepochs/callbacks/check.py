@@ -68,13 +68,13 @@ class CheckCallback(Callback):
             else:
                 running_id = str(trainer.resume)                # 加载指定的checkpoint
             try:
-                print(f'loading checkpoint of running {running_id} ...')
+                trainer.print(f'loading checkpoint of running {running_id} ...')
                 path = osp.join(self.ckpt_dir, running_id, 'checkpoint.ckpt')
-                self.load_state(trainer, path)
+                load_state(trainer, path)
             except FileNotFoundError:
-                print('loading failed, checkpoint does not exist!\nstarting training with random parameters!')
+                trainer.print('loading failed, checkpoint does not exist!\nstarting training with random parameters!')
             except Exception as e:
-                print(f'loading failed! {e}\nstarting training with random parameters!')
+                trainer.print(f'loading failed! {e}\nstarting training with random parameters!')
 
     def on_after_epoch(self, trainer, train_tasks, val_tasks, train_metrics, val_metrics, epoch_idx):
         if self.on_stage == 'val':
@@ -98,24 +98,34 @@ class CheckCallback(Callback):
     def on_before_test_epochs(self, trainer, tasks):
         try:
             if self.ckpt_path is not None:
-                print(f'loading best model from running {trainer.running_id} ...')
-                self.load_state(trainer, self.ckpt_path)
+                trainer.print(f'loading best model from running {trainer.running_id} ...')
+                load_state(trainer, self.ckpt_path)
         except FileNotFoundError as e:
-            print('loading best failed,', e)
-            print('testing with leatest model.')
+            trainer.print('loading best failed,', e)
+            trainer.print('testing with leatest model.')
 
-    def load_state(self, trainer, ckpt_path):
+
+def load_state(trainer, ckpt_path):
+    if trainer.accelerator is None:
         state = torch.load(ckpt_path)
         trainer.model.load_state_dict(state['model_state'])
         trainer.opt.load_state_dict(state['opt_state'])
-        # self.best_value = state['best_value']
-        trainer.init_epoch = state['epoch'] + 1
+        epochs = state['epoch']
+    else:
+        trainer.accelerator.load_state(ckpt_path)
+        epochs = torch.load(osp.join(ckpt_path, 'meta.ckpt'))['epoch']
+    trainer.init_epoch = epochs + 1
 
 
 def save_state(trainer, model, opt, path, **kwargs):
-    model_state = model.state_dict()
-    state = {'model_state': model_state,'opt_state': opt.state_dict(), **kwargs}
-    torch.save(state, path)
+    if trainer.accelerator is None:
+        model_state = model.state_dict()
+        state = {'model_state': model_state,'opt_state': opt.state_dict(), **kwargs}
+        torch.save(state, path)
+    else:
+        trainer.accelerator.wait_for_everyone()
+        trainer.accelerator.save_state(path)
+        torch.save(kwargs, osp.join(path, 'meta.ckpt'))
 
 
 def get_latest_running(from_dir):
