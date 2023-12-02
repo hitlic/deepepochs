@@ -10,12 +10,12 @@ import torch
 from torch.optim import Adam
 from torch.utils.data import DataLoader
 from accelerate import Accelerator
-from .loops import (StopLoopException, LoopException, TensorTuple,
-                    flatten_dict, default_loss, concat_dicts, to_numpy, listify, batch_size, concat, detach_clone)
 from .tools import batches
 from .optimizer import Optimizer, Optimizers
 from .patches import PatchBase, MeanPatch, TensorPatch, run_patch_dict, run_patch_dicts
 from .callbacks import CallbackPool, DefaultCallback, CallbackException
+from .loops import (StopLoopException, LoopException, TensorTuple,
+                    flatten_dict, default_loss, concat_dicts, to_numpy, listify, batch_size, concat, detach_clone)
 
 
 class EpochTask:
@@ -183,9 +183,9 @@ class LossWrapper:
         self.do_loss = None
         self.task = None
 
-        self.total_loss = 0     # 用于实现累积梯度
-        self.model_outs = []    # 用于实现累积梯度
-        self.batch_ys = []      # 用于实现累积梯度
+        self.total_loss = 0     # 用于实现梯度累积
+        self.model_outs = []    # 用于实现梯度累积
+        self.batch_ys = []      # 用于实现梯度累积
 
     def optimize(self):
         self.trainer.callbacks.trigger('before_optimize', trainer=self)
@@ -198,8 +198,9 @@ class LossWrapper:
         Args:
             model_out:         模型预测输出
             batch_y:           标签
-            grad_accumulate:   是否累积梯度
+            grad_accumulate:   是否梯度累积
         """
+        # 训练
         if self.stage == 'train':
             # 计算损失
             loss = self.loss_fn(model_out, batch_y)
@@ -225,13 +226,14 @@ class LossWrapper:
                 return _loss
             else:
                 self.optimize()
-                # 计算平均损失，拼接多次累积度累积中的sub-batch的model_out和batch_y
+                # 计算平均损失，拼接多次累积度中的sub-batch的model_out和batch_y
                 loss_4cbk = self.total_loss / sum(batch_size(o) for o in self.model_outs)
                 model_out_4cbk = concat(self.model_outs)
                 batch_y_4cbk = concat(self.batch_ys)
                 self.total_loss = 0
                 self.model_outs = []
                 self.batch_ys = []
+        # 验证与测试
         else:
             # 验证与测试不需要实现分批，如果需要的话可使用较小的batch_size
             model_out_4cbk = model_out
@@ -521,7 +523,7 @@ class TrainerBase:
 
     def train_step(self, batch_x, batch_y, **step_args):
         """
-        TODO: 非常规训练可修改本方法中的代码。
+        TODO: 非常规训练可重写本方法
         Args:
             batch_x:    一个mini-batch的模型输入
             batch_y:    一个mini-batch的标签或targets
@@ -535,7 +537,7 @@ class TrainerBase:
 
     def evaluate_step(self,batch_x, batch_y, **step_args):
         """
-        TODO: 非常规验证或测试可修改本方法中的代码。也可以定义val_step方法或test_step方法。
+        TODO: 非常规验证或测试可重写本方法，也可以定义val_step方法或test_step方法。
         Args:
             batch_x:    一个mini-batch的模型输入
             batch_y:    一个mini-batch的标签或targets
@@ -555,7 +557,7 @@ class Trainer(TrainerBase):
                    **step_args
                    ) -> Dict[str, PatchBase]:
         """
-        TODO: 非常规训练可修改本方法中的代码。
+        TODO: 非常规训练可重写本方法
         Args:
             batch_x:    一个mini-batch的模型输入
             batch_y:    一个mini-batch的标签或targets
@@ -565,6 +567,7 @@ class Trainer(TrainerBase):
               或
             dict: 键为指标名，值为封装了数据和指标函数的PatchBase子类对象
         """
+        # 正常训练
         if self.grad_accumulate_steps == 1:
             model_out = self.model(*batch_x)
             # self.loss是对Trainer中loss参数的封装，会自动调用opt.zero_grad、loss.backward、opt.step等方法
@@ -575,10 +578,10 @@ class Trainer(TrainerBase):
         b_size = batch_size(batch_x)
         sub_batch_size = math.ceil(b_size / self.grad_accumulate_steps)
         for sub_batch_idx, (sub_batch_x, sub_batch_y) in enumerate(zip(batches(batch_x, sub_batch_size), batches(batch_y, sub_batch_size))):
-            if self.accelerator is None:
+            if self.accelerator is None:    # DeepEpochs实现
                 model_out = self.model(*sub_batch_x)
                 self.loss(model_out, sub_batch_y, sub_batch_idx + 1 < self.grad_accumulate_steps)
-            else:
+            else:                           # Accelerate实现
                 with self.accelerator.accumulate(self.model.model):
                     model_out = self.model(*sub_batch_x)
                     self.loss(model_out, sub_batch_y, sub_batch_idx + 1 < self.grad_accumulate_steps)
@@ -589,7 +592,7 @@ class Trainer(TrainerBase):
                       **step_args
                       ) -> Dict[str, PatchBase]:
         """
-        TODO: 非常规验证或测试可修改本方法中的代码。也可以定义val_step方法或test_step方法。
+        TODO: 非常规验证或测试可重写本方法，也可以定义val_step方法或test_step方法
         Args:
             batch_x:    一个mini-batch的模型输入
             batch_y:    一个mini-batch的标签或targets

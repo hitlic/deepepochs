@@ -21,10 +21,11 @@ class Callback:
                         on_before_train_batch
                             on_before_train_forward
                             on_after_train_forward
-                            on_before_backward
-                            on_after_backward
-                            on_before_optimize
-                            on_after_optimize
+                            # 累积梯度训练重复多次
+                                on_before_backward
+                                on_after_backward
+                                on_before_optimize
+                                on_after_optimize
                             on_train_metrics
                         on_after_train_batch
                         ...
@@ -121,6 +122,7 @@ class Callback:
 
     def on_before_backward(self, trainer, loss):
         """
+        *在累积梯度训练时会重复多次
         Args:
             trainer:  Trainer
             loss:     loss
@@ -128,6 +130,7 @@ class Callback:
 
     def on_after_backward(self, trainer, loss):
         """
+        *在累积梯度训练时会重复多次
         Args:
             trainer:  Trainer
             loss:     loss
@@ -135,12 +138,14 @@ class Callback:
 
     def on_before_optimize(self, trainer):
         """
+        *在累积梯度训练时会重复多次
         Args:
             trainer:  Trainer
         """
 
     def on_after_optimize(self, trainer):
         """
+        *在累积梯度训练时会重复多次
         Args:
             trainer:  Trainer
         """
