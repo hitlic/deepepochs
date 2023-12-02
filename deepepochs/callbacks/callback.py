@@ -21,9 +21,10 @@ class Callback:
                         on_before_train_batch
                             on_before_train_forward
                             on_after_train_forward
-                            # 累积梯度训练重复多次
+                            # 累积梯度时重复多次
                                 on_before_backward
                                 on_after_backward
+                            # Accelerate累积梯度时重复多次
                                 on_before_optimize
                                 on_after_optimize
                             on_train_metrics
@@ -122,7 +123,7 @@ class Callback:
 
     def on_before_backward(self, trainer, loss):
         """
-        *在累积梯度训练时会重复多次
+        *累积梯度训练时会重复多次
         Args:
             trainer:  Trainer
             loss:     loss
@@ -130,7 +131,7 @@ class Callback:
 
     def on_after_backward(self, trainer, loss):
         """
-        *在累积梯度训练时会重复多次
+        *累积梯度训练时会重复多次
         Args:
             trainer:  Trainer
             loss:     loss
@@ -138,14 +139,14 @@ class Callback:
 
     def on_before_optimize(self, trainer):
         """
-        *在累积梯度训练时会重复多次
+        *Accelerate累积梯度训练时会重复多次
         Args:
             trainer:  Trainer
         """
 
     def on_after_optimize(self, trainer):
         """
-        *在累积梯度训练时会重复多次
+        *Accelerate累积梯度训练时会重复多次
         Args:
             trainer:  Trainer
         """
@@ -154,9 +155,9 @@ class Callback:
         """
         Args:
             trainer:    Trainer
-            loss:       当前batch的损失
+            loss:       当前训练batch的损失
             model_out:  模型前向预测输出
-            batch_y:    标签
+            batch_y:    当前训练batch的标签
             task:       当前的EpochTask
         """
 
@@ -228,7 +229,7 @@ class Callback:
             trainer:    Trainer
             loss:       当前batch的损失
             model_out:  模型前向预测输出
-            batch_y:    标签
+            batch_y:    当前验证batch的标签
             task:       当前的EpochTask
         """
 
@@ -312,7 +313,7 @@ class Callback:
             trainer:    Trainer
             loss:       当前batch的损失
             model_out:  模型前向预测输出
-            batch_y:    标签
+            batch_y:    当前测试batch的标签
             task:       当前的EpochTask
         """
 
