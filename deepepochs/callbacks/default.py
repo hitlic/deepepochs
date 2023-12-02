@@ -1,7 +1,7 @@
+import torch
 from .callback import Callback
 from ..loops import log_batch, log_epoch, batch_size
 from ..patches import ValuePatch
-import torch
 
 
 class DefaultCallback(Callback):
@@ -74,19 +74,19 @@ class DefaultCallback(Callback):
         if self.log_batch and trainer.main_process:
             log_batch(metrics, self.global_test_epoch_idx+1, self.total_test_epochs, self.global_test_batch_idx, self.total_test_batchs, 'TEST', self.epoch_width, self.batch_width, self.round_to)
 
-    def on_after_train_loss(self, trainer, loss, model_out, targets, task):
+    def on_train_metrics(self, trainer, loss, model_out, batch_y, task):
         """当前task的每个指标构建Patch，并注入task.batch_patch_dict"""
-        task.batch_patch_dict = self.make_patch_dict(trainer, loss, model_out, targets, task.metrics, 'train')
+        task.batch_patch_dict = self.make_patch_dict(trainer, loss, model_out, batch_y, task.metrics, 'train')
 
-    def on_after_val_loss(self, trainer, loss, model_out, targets, task):
+    def on_val_metrics(self, trainer, loss, model_out, batch_y, task):
         """当前task的每个指标构建Patch，并注入task.batch_patch_dict"""
-        task.batch_patch_dict = self.make_patch_dict(trainer, loss, model_out, targets, task.metrics, 'val')
+        task.batch_patch_dict = self.make_patch_dict(trainer, loss, model_out, batch_y, task.metrics, 'val')
 
-    def on_after_test_loss(self, trainer, loss, model_out, targets, task):
+    def on_test_metrics(self, trainer, loss, model_out, batch_y, task):
         """当前task的每个指标构建Patch，并注入task.batch_patch_dict"""
-        task.batch_patch_dict = self.make_patch_dict(trainer, loss, model_out, targets, task.metrics, 'test')
+        task.batch_patch_dict = self.make_patch_dict(trainer, loss, model_out, batch_y, task.metrics, 'test')
 
-    def make_patch_dict(self, trainer, loss, model_out, targets, metrics, stage):
+    def make_patch_dict(self, trainer, loss, model_out, batch_y, metrics, stage):
         b_size = torch.tensor(batch_size(model_out)).to(trainer.device)
         # Accelerate 分布式训练时，获取各Process的数据
         if trainer.accelerator is not None and stage!='train':  # 训练时仅在主线程上计算指标
@@ -97,9 +97,9 @@ class DefaultCallback(Callback):
                 b_size = b_size.sum()
                 loss = loss/b_size
             model_out = trainer.accelerator.gather_for_metrics(model_out)
-            targets = trainer.accelerator.gather_for_metrics(targets)
+            batch_y = trainer.accelerator.gather_for_metrics(batch_y)
 
         patch_dict = {} if loss is None else  {'loss': ValuePatch(loss, b_size)}
         for m in metrics:
-            patch_dict[m.__name__] = trainer.metric_patch(m, model_out, targets)
+            patch_dict[m.__name__] = trainer.metric_patch(m, model_out, batch_y)
         return patch_dict

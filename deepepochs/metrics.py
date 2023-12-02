@@ -1,6 +1,9 @@
-from .loops import sum_dicts, ddict
-import torch
+"""
+@author: liuchen
+"""
 from functools import lru_cache
+import torch
+from .loops import sum_dicts, ddict
 
 
 @lru_cache(maxsize=1)

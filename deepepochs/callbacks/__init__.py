@@ -1,3 +1,6 @@
+"""
+@author: liuchen
+"""
 from .callback import Callback, CallbackPool, CallbackException
 from .default import DefaultCallback
 from .check import CheckCallback

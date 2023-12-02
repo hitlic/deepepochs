@@ -1,14 +1,13 @@
 """
-@author: hitlic
-DeepEpochs is a simple Pytorch deep learning model training tool(see https://github.com/hitlic/deepepochs).
+@author: liuchen
 """
 import os
 from os import path as osp
+from copy import deepcopy
+from typing import Iterable
 import torch
 import numpy as np
 import random as rand
-from typing import Iterable
-from copy import deepcopy
 
 
 def seed(seed):
@@ -154,6 +153,13 @@ def flatten_dict(d, parent_key='', sep='.'):
     return dict(items)
 
 
+__MAX_LOG_INFO_LEN = 0          # 输出的最长字符串
+def __update_max_len(log_info): # 更新最长串
+    global __MAX_LOG_INFO_LEN
+    info_len = len(log_info)
+    __MAX_LOG_INFO_LEN = info_len if info_len > __MAX_LOG_INFO_LEN else __MAX_LOG_INFO_LEN
+
+
 def log_batch(metrics, epoch_idx, epochs, batch_idx, batchs, stage, epoch_width=0, batch_width=0, round_to=4):
     """
     输出batch指标值
@@ -175,7 +181,10 @@ def log_batch(metrics, epoch_idx, epochs, batch_idx, batchs, stage, epoch_width=
     batch_width = 4 if batch_width==0 else batch_width
     epoch_idx, epochs = str(epoch_idx).rjust(epoch_width), str(epochs).ljust(epoch_width)
     batch_idx, batchs = str(batch_idx).rjust(batch_width), str(batchs).ljust(batch_width)
-    print_out(f'E {epoch_idx}/{epochs}  B {batch_idx}/{batchs}  {stage}> {batch_info}{" "*20}', end='   ')
+
+    log_info = f'E {epoch_idx}/{epochs}  B {batch_idx}/{batchs}  {stage}> {batch_info}'
+    __update_max_len(log_info)
+    print_out(log_info, end='')
 
 
 def log_epoch(stages_metrics, epoch_idx, epochs, epoch_width=0, round_to=4):
@@ -194,10 +203,14 @@ def log_epoch(stages_metrics, epoch_idx, epochs, epoch_width=0, round_to=4):
         if val_metrics is not None:
             val_info = info(val_metrics, round_to)
             val_info = '  VAL> ' + val_info
-        print_out(f'E {epoch_idx}/{epochs}  TRAIN> {train_info}{val_info}', end='   \n')  # 清除光标至行末字符
+
+        log_info = f'E {epoch_idx}/{epochs}  TRAIN> {train_info}{val_info}'
+        print_out(log_info, end='\n')  # 清除光标至行末字符
     elif test_metrics is not None:
         test_info = info(test_metrics, round_to)
-        print_out(f'E {epoch_idx}/{epochs}  TEST> {test_info}{" "*20}', end='   \n')  # 清除光标至行末字符
+        log_info = f'E {epoch_idx}/{epochs}  TEST> {test_info}'
+        __update_max_len(log_info)
+        print_out(log_info, end='\n')  # 清除光标至行末字符
     else:
         raise ValueError("log_epoch 参数错误!")
 
@@ -210,7 +223,8 @@ def info(m_dict, round_to):
 
 
 def print_out(content, end='\n'):
-    print(end='\x1b[2K\r')  # \x1b[1K 清除行首至光标位置字符
+    content += ' ' * (__MAX_LOG_INFO_LEN - len(content))
+    print(end='\r')  # \x1b[1K 清除行首至光标位置字符
     print(content, flush=True, sep='', end=end)
 
 
@@ -250,7 +264,7 @@ def to_numpy(data):
         return to(data)
 
 
-def detach(data):
+def detach_clone(data):
     """对torch.Tensor或者Tensor列表、Tensor字典进行detach().clone()操作"""
     def to(d):
         if isinstance(d, torch.Tensor):

@@ -1,8 +1,19 @@
 """
 累积梯度更新：
     每次计算一个mini-batch的一部分，累积多次计算的梯度然后更新。当内存或GPU不足时使用。
+
+利用accelerate运行：
+    命令行：
+        # 在__main__=='__name__'下调用main函数，然后执行
+        accelerate launch --num_processes=2 file_name.py
+        或
+        accelerate launch --num_processes=2 --mixed_precision fp16 file_name.py
+    Notebook：
+        # 不要在代码中调用main函数，执行如下代码
+        from accelerate import notebook_launcher
+        notebook_launcher(main, args=(), num_processes=2, mixed_precision="fp16")
 """
-from deepepochs import Trainer, metrics as dm, GradAccumulateTask
+from deepepochs import Trainer, metrics as dm, seed
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -11,6 +22,7 @@ from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
 from accelerate import Accelerator
 
+seed(1)
 
 def main():
     # datasets
@@ -50,16 +62,11 @@ def main():
     trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=2,
                       device=device,
                       metrics=[acc],
+                      grad_accumulate_steps=2
                       )
 
-    # 当accumulate_steps与Accelerator的gradient_accumulation_steps不一致时，优先使用gradient_accumulation_steps
-    # 因此，当使用Accelerator时，GradAccumulateTask的accumulate_steps参数可省略
-    train_task = GradAccumulateTask(train_dl, accumulate_steps=2)
-    val_task = GradAccumulateTask(val_dl, accumulate_steps=2)
-    test_task = GradAccumulateTask(test_dl, accumulate_steps=2)
-
-    trainer.fit(train_tasks=train_task, val_tasks=val_task)
-    trainer.test(tasks=test_task)
+    trainer.fit(train_dl, val_dl)
+    trainer.test(test_dl)
 
 if __name__ == '__main__':
     main()

@@ -1,4 +1,5 @@
 """
+@author: liuchen
 1. Patch是对一个或多个mini-batch运行结果的封装，用于batch指标计算、epoch指标计算。
 2. Patch有三个重要方法：
     - forward:  无参数，用于计算或处理封装的数据
@@ -17,9 +18,9 @@
     - 定制用于计算指标的Patch可继承MetricPatch，实现forward方法和add方法
 """
 import abc
+from typing import Literal
 import torch
 import numpy as np
-from typing import Literal
 from .metrics import confusion_matrix, accuracy, precision, recall, fbeta
 from .loops import keyset
 

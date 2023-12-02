@@ -1,16 +1,16 @@
 """
-@author: hitlic
+@author: liuchen
 一些有用的工具
 """
 import math
+import itertools
+from queue import PriorityQueue
 from collections import deque
 from itertools import chain
 import torch
+import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.pyplot import MultipleLocator
-from queue import PriorityQueue
-import numpy as np
-import itertools
 from .loops import TensorTuple
 
 

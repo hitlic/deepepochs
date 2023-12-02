@@ -1,11 +1,11 @@
-from .callback import Callback
-from ..loops import check_path
 import sys
 import os
 from os import path as osp
 import platform
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.tensorboard.summary import hparams
+from .callback import Callback
+from ..loops import check_path
 
 
 class LogCallback(Callback):
@@ -77,37 +77,32 @@ class LogCallback(Callback):
         return lr_dict
 
     def on_before_train_epoch(self, trainer, task):
-        self.log(self.lr_dict(trainer), 'train', 'epoch', self.global_train_epoch_idx)
+        if trainer.main_process:
+            self.log(self.lr_dict(trainer), 'train', 'epoch', self.global_train_epoch_idx)
 
     def on_after_test_epoch(self, trainer, task, metrics):
-        if not trainer.main_process:
-            return
-        if trainer.hyper_params is not None:
+        if trainer.hyper_params is not None and trainer.main_process:
             self.log_hparams(trainer.hyper_params, metrics)
 
     def on_after_train_batch(self, trainer, metrics, batch_idx):
         self.global_train_batch_idx += 1
-        if not trainer.main_process:
-            return
-        self.log(metrics, 'train', 'batch', self.global_train_batch_idx)
+        if trainer.main_process:
+            self.log(metrics, 'train', 'batch', self.global_train_batch_idx)
 
     def on_after_train_epoch(self, trainer, task, metrics):
         self.global_train_epoch_idx += 1
-        if not trainer.main_process:
-            return
-        self.log(metrics, 'train', 'epoch', self.global_train_epoch_idx)
+        if trainer.main_process:
+            self.log(metrics, 'train', 'epoch', self.global_train_epoch_idx)
 
     def on_after_val_batch(self, trainer, metrics, batch_idx):
         self.global_val_batch_idx += 1
-        if not trainer.main_process:
-            return
-        self.log(metrics, 'val', 'batch', self.global_val_batch_idx)
+        if trainer.main_process:
+            self.log(metrics, 'val', 'batch', self.global_val_batch_idx)
 
     def on_after_val_epoch(self, trainer, task, metrics):
         self.global_val_epoch_idx += 1
-        if not trainer.main_process:
-            return
-        self.log(metrics, 'val', 'epoch', self.global_val_epoch_idx)
+        if trainer.main_process:
+            self.log(metrics, 'val', 'epoch', self.global_val_epoch_idx)
 
     def run_tensorboard(self):
         run_tensorboard(self.log_dir)

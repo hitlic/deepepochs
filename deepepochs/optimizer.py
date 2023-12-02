@@ -1,4 +1,6 @@
-
+"""
+@author: liuchen
+"""
 class Optimizer:
     def __init__(self, opt, scheduler=None, sched_on='epoch', sched_with_loss=False):
         """

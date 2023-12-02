@@ -1,11 +1,11 @@
 from torch.utils.tensorboard import SummaryWriter
-from matplotlib import pyplot as plt
 from os import path as osp
+from matplotlib import pyplot as plt
+from .callback import Callback
+from .log import run_tensorboard
 from ..tools import plot_confusion, TopKQueue
 from ..metrics import confusion_matrix, get_class_num
 from ..loops import check_path
-from .callback import Callback
-from .log import run_tensorboard
 
 
 class InterpreteCallback(Callback):
@@ -74,15 +74,15 @@ class InterpreteCallback(Callback):
         else:
             self.confusion_matrix += confusion_matrix(model_out, self.batch_y, self.class_num)
 
-    def on_after_train_loss(self, trainer, loss, model_out, targets, task):
+    def on_train_metrics(self, trainer, loss, model_out, batch_y, task):
         if 'train' in self.stages:
             self.update_confusion_matrix(model_out)
 
-    def on_after_val_loss(self, trainer, loss, model_out, targets, task):
+    def on_val_metrics(self, trainer, loss, model_out, batch_y, task):
         if 'val' in self.stages:
             self.update_confusion_matrix(model_out)
 
-    def on_after_test_loss(self, trainer, loss, model_out, targets, task):
+    def on_test_metrics(self, trainer, loss, model_out, batch_y, task):
         if 'test' in self.stages:
             self.put_queue(model_out, self.batch_y, self.batch_x)
             self.update_confusion_matrix(model_out)

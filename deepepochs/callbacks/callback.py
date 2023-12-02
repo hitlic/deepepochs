@@ -1,8 +1,8 @@
 """
-@author: hitlic
+@author: liuchen
 """
-from collections.abc import Iterable
 import time
+from collections.abc import Iterable
 
 
 class CallbackException(Exception):
@@ -21,10 +21,11 @@ class Callback:
                         on_before_train_batch
                             on_before_train_forward
                             on_after_train_forward
-                            on_before_train_loss
-                                on_before_backward
-                                on_after_backward
-                            on_after_train_loss
+                            on_before_backward
+                            on_after_backward
+                            on_before_optimize
+                            on_after_optimize
+                            on_train_metrics
                         on_after_train_batch
                         ...
                     on_after_train_epoch
@@ -35,8 +36,7 @@ class Callback:
                         on_before_val_batch
                             on_before_val_forward
                             on_after_val_forward
-                            on_before_val_loss
-                            on_after_val_loss
+                            on_val_metrics
                         on_after_val_batch
                         ...
                     on_after_val_epoch
@@ -50,8 +50,7 @@ class Callback:
                 on_before_test_batch
                     on_before_test_forward
                     on_after_test_forward
-                    on_before_test_loss
-                    on_after_test_loss
+                    on_test_metrics
                 on_after_test_batch
                 ...
             on_after_test_epoch
@@ -120,15 +119,6 @@ class Callback:
             model_out:  模型前向预测输出
         """
 
-    def on_before_train_loss(self, trainer, model_out, targets, task):
-        """
-        Args:
-            trainer:    Trainer
-            model_out:  模型前向预测输出
-            targets:    标签
-            task:       当前的EpochTask
-        """
-
     def on_before_backward(self, trainer, loss):
         """
         Args:
@@ -143,13 +133,25 @@ class Callback:
             loss:     loss
         """
 
-    def on_after_train_loss(self, trainer, loss, model_out, targets, task):
+    def on_before_optimize(self, trainer):
+        """
+        Args:
+            trainer:  Trainer
+        """
+
+    def on_after_optimize(self, trainer):
+        """
+        Args:
+            trainer:  Trainer
+        """
+
+    def on_train_metrics(self, trainer, loss, model_out, batch_y, task):
         """
         Args:
             trainer:    Trainer
             loss:       当前batch的损失
             model_out:  模型前向预测输出
-            targets:    标签
+            batch_y:    标签
             task:       当前的EpochTask
         """
 
@@ -215,22 +217,13 @@ class Callback:
             model_out:  模型前向预测输出
         """
 
-    def on_before_val_loss(self, trainer, model_out, targets, task):
-        """
-        Args:
-            trainer:    Trainer
-            model_out:  模型前向预测输出
-            targets:    标签
-            task:       当前的EpochTask
-        """
-
-    def on_after_val_loss(self, trainer, loss, model_out, targets, task):
+    def on_val_metrics(self, trainer, loss, model_out, batch_y, task):
         """
         Args:
             trainer:    Trainer
             loss:       当前batch的损失
             model_out:  模型前向预测输出
-            targets:    标签
+            batch_y:    标签
             task:       当前的EpochTask
         """
 
@@ -308,22 +301,13 @@ class Callback:
             model_out:  模型前向预测输出
         """
 
-    def on_before_test_loss(self, trainer, model_out, targets, task):
-        """
-        Args:
-            trainer:    Trainer
-            model_out:  模型前向预测输出
-            targets:    标签
-            task:       当前的EpochTask
-        """
-
-    def on_after_test_loss(self, trainer, loss, model_out, targets, task):
+    def on_test_metrics(self, trainer, loss, model_out, batch_y, task):
         """
         Args:
             trainer:    Trainer
             loss:       当前batch的损失
             model_out:  模型前向预测输出
-            targets:    标签
+            batch_y:    标签
             task:       当前的EpochTask
         """
 

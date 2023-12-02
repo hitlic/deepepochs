@@ -1,7 +1,7 @@
+from matplotlib import pyplot as plt
 from .callback import Callback, CallbackException
 from ..loops import StopLoopException
 from ..optimizer import Optimizers
-from matplotlib import pyplot as plt
 
 
 class LRFindCallback(Callback):

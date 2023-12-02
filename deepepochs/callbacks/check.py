@@ -1,8 +1,8 @@
 
-from .callback import Callback, CallbackException
-import torch
 import os
 from os import path as osp
+import torch
+from .callback import Callback, CallbackException
 from ..loops import check_path, StopLoopException
 
 

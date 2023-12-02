@@ -1,20 +1,21 @@
 """
-@author: hitlic
+@author: liuchen
 """
+import math
+import time
+from datetime import datetime
+from collections import defaultdict
 from typing import List, Dict, Callable
 import torch
 from torch.optim import Adam
+from torch.utils.data import DataLoader
+from accelerate import Accelerator
 from .loops import (StopLoopException, LoopException, TensorTuple,
-                    flatten_dict, default_loss, concat_dicts, to_numpy, listify, batch_size, concat)
+                    flatten_dict, default_loss, concat_dicts, to_numpy, listify, batch_size, concat, detach_clone)
 from .tools import batches
 from .optimizer import Optimizer, Optimizers
 from .patches import PatchBase, MeanPatch, TensorPatch, run_patch_dict, run_patch_dicts
-from collections import defaultdict
 from .callbacks import CallbackPool, DefaultCallback, CallbackException
-from torch.utils.data import DataLoader
-from datetime import datetime
-import time
-from accelerate import Accelerator
 
 
 class EpochTask:
@@ -168,11 +169,12 @@ class ModelWrapper:
 
 class LossWrapper:
     """
-    用于自动完成zero_grad、backward、opt.step等操作
-       实现回调： on_train_prediction
-                on_val_prediction
-                on_test_prediction
-                on_before_backward    on_after_backward
+    1. 自动完成zero_grad、backward、opt.step等操作
+    2. 配合实现梯度累积
+    3. 实现回调
+            on_before_backward    on_after_backward
+            on_before_optimize    on_after_optimize
+            on_train_metrics      on_val_metrics       on_test_metrics
     """
     def __init__(self, loss_fn, trainer):
         self.loss_fn = loss_fn
@@ -181,28 +183,65 @@ class LossWrapper:
         self.do_loss = None
         self.task = None
 
-    def __call__(self, model_out, targets):
-        self.trainer.callbacks.trigger(f'before_{self.stage}_loss', trainer=self.trainer, model_out=model_out, targets=targets, task=self.task)
+        self.total_loss = 0     # 用于实现累积梯度
+        self.model_outs = []    # 用于实现累积梯度
+        self.batch_ys = []      # 用于实现累积梯度
+
+    def optimize(self):
+        self.trainer.callbacks.trigger('before_optimize', trainer=self)
+        self.trainer.opt.step()
+        self.trainer.opt.zero_grad()
+        self.trainer.callbacks.trigger('after_optimize', trainer=self)
+
+    def __call__(self, model_out, batch_y, grad_accumulate=False):
+        """
+        Args:
+            model_out:         模型预测输出
+            batch_y:           标签
+            grad_accumulate:   是否累积梯度
+        """
         if self.stage == 'train':
-            loss = self.loss_fn(model_out, targets)
+            # 计算损失
+            loss = self.loss_fn(model_out, batch_y)
+
+            # backward
             self.trainer.callbacks.trigger('before_backward', trainer=self, loss=loss)
             if self.trainer.accelerator is None:
-                loss.backward()
+                (loss/self.trainer.grad_accumulate_steps).backward()
             else:       # accelerate的backward
-                self.trainer.accelerator.backward(loss)
-            self.trainer.opt.step()
-            self.trainer.opt.zero_grad()
+                self.trainer.accelerator.backward(loss/self.trainer.grad_accumulate_steps)
             self.trainer.callbacks.trigger('after_backward', trainer=self, loss=loss)
-        else:
-            if self.do_loss:
-                loss = self.loss_fn(model_out, targets)
+
+            # 记录各sub-batch的总损失、模型输出、标签
+            _loss = loss.detach().clone()
+            self.total_loss += _loss * batch_size(model_out)
+            self.model_outs.append(detach_clone(model_out))
+            self.batch_ys.append(batch_y)
+
+            # 梯度累积
+            if grad_accumulate:
+                if self.trainer.accelerator is not None: # DeepEpochs的梯度累积要求仅最后一个sub-batch优化
+                    self.optimize()                      # Accelerate的梯度累积要求每个sub-batch都优化
+                return _loss
             else:
-                loss = None
-        loss = None if loss is None else loss.detach().clone()
-        model_out = TensorTuple(model_out).detach().clone()
-        model_out = model_out[0] if len(model_out)==1 else model_out
-        self.trainer.callbacks.trigger(f'after_{self.stage}_loss', trainer=self.trainer, loss=loss, model_out=model_out, targets=targets, task=self.task)
-        return loss
+                self.optimize()
+                # 计算平均损失，拼接多次累积度累积中的sub-batch的model_out和batch_y
+                loss_4cbk = self.total_loss / sum(batch_size(o) for o in self.model_outs)
+                model_out_4cbk = concat(self.model_outs)
+                batch_y_4cbk = concat(self.batch_ys)
+                self.total_loss = 0
+                self.model_outs = []
+                self.batch_ys = []
+        else:
+            # 验证与测试不需要实现分批，如果需要的话可使用较小的batch_size
+            model_out_4cbk = model_out
+            batch_y_4cbk = batch_y
+            if self.do_loss:
+                loss_4cbk = self.loss_fn(model_out, batch_y)
+            else:
+                loss_4cbk = None
+        self.trainer.callbacks.trigger(f'{self.stage}_metrics', trainer=self.trainer, loss=loss_4cbk, model_out=model_out_4cbk, batch_y=batch_y_4cbk, task=self.task)
+        return loss_4cbk
 
 
 class TrainerBase:
@@ -220,6 +259,7 @@ class TrainerBase:
                  long_output=False,
                  log_batch=True,
                  compile_model=False,
+                 grad_accumulate_steps=1,
                  ):
         """
         Args:
@@ -242,6 +282,7 @@ class TrainerBase:
             long_output [bool]:             指标输出为长格式（7位小数）还是短格式（4位小数）
             log_batch [bool]:               训练过程中是否每个batch输出一次指标值
             compile_model [bool]:           利用PyTorch 2.x对模型compile以提升速度（暂不支持mps、Windows [v2.1]）
+            grad_accumulate_steps [int]:    累积梯度更新时的累积次数，大于1表示启用累积梯度更新
         """
         # 检测与配置加速设备
         if device is not None:
@@ -264,7 +305,7 @@ class TrainerBase:
             self.device = self.accelerator.device
             self.main_process = self.accelerator.is_main_process  # 是否主进程
         else:
-            assert str(self.device).split(':')[0] in device_types, f'Pytorch不支持的{self.device}设备！\nPytorch支持的设备有：{device_types}'
+            assert str(self.device).split(':', maxsplit=1)[0] in device_types, f'Pytorch不支持的{self.device}设备！\nPytorch支持的设备有：{device_types}'
             self.accelerator = None
             self.main_process = True
 
@@ -272,6 +313,13 @@ class TrainerBase:
         if compile_model:
             model = torch.compile(model)
         self.model = ModelWrapper(model, self).to(self.device)
+
+        # 梯度累积次数
+        assert isinstance(grad_accumulate_steps, int) and grad_accumulate_steps > 0, '梯度累积次数`grad_accumulate_steps`必须为正整数！'
+        self.grad_accumulate_steps = grad_accumulate_steps
+        if self.accelerator is not None and self.accelerator.gradient_accumulation_steps > 1:
+            # 优先使用accelerator中的gradient_accumulation_steps
+            self.grad_accumulate_steps = self.accelerator.gradient_accumulation_steps
 
         # 配置损失函数
         if loss is None:
@@ -517,9 +565,23 @@ class Trainer(TrainerBase):
               或
             dict: 键为指标名，值为封装了数据和指标函数的PatchBase子类对象
         """
-        model_out = self.model(*batch_x)
-        # self.loss是对Trainer中loss参数的封装，会自动调用opt.zero_grad、loss.backward、opt.step等方法
-        self.loss(model_out, batch_y)
+        if self.grad_accumulate_steps == 1:
+            model_out = self.model(*batch_x)
+            # self.loss是对Trainer中loss参数的封装，会自动调用opt.zero_grad、loss.backward、opt.step等方法
+            self.loss(model_out, batch_y)
+            return
+
+        # 累积梯度训练
+        b_size = batch_size(batch_x)
+        sub_batch_size = math.ceil(b_size / self.grad_accumulate_steps)
+        for sub_batch_idx, (sub_batch_x, sub_batch_y) in enumerate(zip(batches(batch_x, sub_batch_size), batches(batch_y, sub_batch_size))):
+            if self.accelerator is None:
+                model_out = self.model(*sub_batch_x)
+                self.loss(model_out, sub_batch_y, sub_batch_idx + 1 < self.grad_accumulate_steps)
+            else:
+                with self.accelerator.accumulate(self.model.model):
+                    model_out = self.model(*sub_batch_x)
+                    self.loss(model_out, sub_batch_y, sub_batch_idx + 1 < self.grad_accumulate_steps)
 
     def evaluate_step(self,
                       batch_x:[torch.Tensor, List[torch.Tensor]],
@@ -541,67 +603,3 @@ class Trainer(TrainerBase):
         model_out = self.model(*batch_x)
         # self.loss是对Trainer中loss参数的封装，会自动调用opt.zero_grad、loss.backward、opt.step等方法
         self.loss(model_out, batch_y)
-
-
-class GradAccumulateTask(EpochTask):
-    """
-    实现了累积梯度更新的Task
-    """
-    def __init__(self, dataloader, accumulate_steps=None, metrics=None, do_loss=True, **step_args):
-        """
-        Args:
-            dataloader:       pytorch Dataloader
-            accumulate_steps: 梯度累积步数
-            metrics:          指标函数列表
-            do_loss:          验证和测试中是否计算据损失
-            step_args:        其他需要传递给`step`、`train_step`、`val_step`、`test_step`和`evaluate`方法的参数
-        """
-        super().__init__(dataloader, metrics, do_loss, **step_args)
-        self.dl_batch_size = dataloader.batch_size
-        self.accumulate_steps = accumulate_steps
-
-    def check(self):
-        # 优先使用accelerator中定义的累积步数
-        if self.trainer.accelerator is not None:
-            self.accumulate_steps = self.trainer.accelerator.gradient_accumulation_steps
-        if self.dl_batch_size % self.accumulate_steps != 0:
-            raise LoopException("batch_size必须能被accumulate_steps整除！")
-        self.sub_batch_size = self.dl_batch_size//self.accumulate_steps
-
-    def step(self, batch_x, batch_y):
-        self.check()
-        loss_fn = self.trainer.loss.loss_fn
-        total_loss = 0
-        model_out_s = []
-
-        if self.trainer.accelerator is not None and self.stage == 'train':  # --- accelerate实现
-            for sub_batch_x, sub_batch_y in zip(batches(batch_x, self.sub_batch_size), batches(batch_y, self.sub_batch_size)):
-                with self.trainer.accelerator.accumulate(self.trainer.model.model):
-                    model_out = self.model(*sub_batch_x)
-                    model_out_s.append(model_out)
-                    loss = loss_fn(model_out, sub_batch_y)
-                    self.trainer.accelerator.backward(loss)
-                    self.trainer.opt.step()
-                    self.trainer.opt.zero_grad()
-                    total_loss += loss.detach().clone() * batch_size(sub_batch_x)
-        else:                                                               # --- Deepepochs实现
-            for sub_batch_x, sub_batch_y in zip(batches(batch_x, self.sub_batch_size), batches(batch_y, self.sub_batch_size)):
-                model_out = self.model(*sub_batch_x)
-                model_out_s.append(model_out)
-                if self.do_loss:
-                    loss = loss_fn(model_out, sub_batch_y)
-                    sub_loss = loss/self.accumulate_steps
-                    total_loss += loss.detach().clone() * batch_size(sub_batch_x)
-                if self.stage == 'train':
-                    sub_loss.backward()
-            if self.stage == 'train':
-                self.trainer.opt.step()
-                self.trainer.opt.zero_grad()
-
-        avg_loss = total_loss/batch_size(batch_x) if self.do_loss else None
-        model_outs = concat(model_out_s)
-        self.trainer.callbacks.trigger(f'before_{self.stage}_loss', trainer=self.trainer, model_out=model_outs, targets=batch_y, task=self)
-        if self.stage == 'train':
-            self.trainer.callbacks.trigger('after_backward', trainer=self, loss=avg_loss)
-            self.trainer.callbacks.trigger('before_backward', trainer=self, loss=avg_loss)
-        self.trainer.callbacks.trigger(f'after_{self.stage}_loss', trainer=self.trainer, loss=avg_loss, model_out=model_outs, targets=batch_y, task=self)
