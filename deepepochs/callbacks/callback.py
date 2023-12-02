@@ -47,7 +47,7 @@ class Callback:
             on_after_epoch
             ...
         on_after_fit
-        on_before_test_epochs
+        on_before_test_epochs            # 多个测试任务
             on_before_test_epoch
                 on_before_test_batch
                     on_before_test_forward
