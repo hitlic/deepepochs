@@ -11,12 +11,10 @@
     命令行：
         # 在__main__=='__name__'下调用main函数，然后执行
         accelerate launch --num_processes=2 file_name.py
-        或
-        accelerate launch --num_processes=2 --mixed_precision fp16 file_name.py
     Notebook：
-        # 不要在代码中调用main函数，执行如下代码
+        # 去掉代码中main函数调用部分，然后在notebook中执行如下代码
         from accelerate import notebook_launcher
-        notebook_launcher(main, args=(), num_processes=2, mixed_precision="fp16")
+        notebook_launcher(main, args=(), num_processes=2)
 """
 
 # %%writefile file_name.py  # 将Notebook代码Cell写入文件file_name.py
@@ -34,7 +32,10 @@ from torch.utils.data import DataLoader, random_split
 # 1. 定义函数
 def main():
     # 2. 定义Accelerator
-    accelerator = Accelerator(split_batches=True)
+    accelerator = Accelerator(
+        split_batches=True,     # 自动根据gpu数量调整batch-size
+        mixed_precision="fp16"  # 混合精度
+        )
 
     # 第一个进程先加载数据并缓存，后续进程利用缓存避免每个进程都加载数据
     with accelerator.main_process_first():

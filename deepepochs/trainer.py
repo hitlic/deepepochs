@@ -403,8 +403,10 @@ class TrainerBase:
             if self.accelerator.distributed_type == 'NO':  # 单进程Accerate
                 self.print(f"{'device:':<12} Accelerate-{self.device}")
             else:   # 分布式训练-类型-进程数量
-                self.print(f"{'device:':<12} Accelerate-{self.accelerator.distributed_type}-{self.accelerator.num_processes}")
+                self.print(f"{'device:':<12} Accelerate-{self.accelerator.num_processes}-{self.accelerator.distributed_type}")
                 self.print(' '*12, "**Note: Training metrics are only calculated in the main process!")
+            if self.accelerator.mixed_precision != 'no':
+                self.print(f"{'mixed_precision':<12} {self.accelerator.mixed_precision}")
         self.print(f"{'running ID:':<12} {self.running_id}")
         param_size = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         self.print(f"{'parameters:':<12} {param_size}")
