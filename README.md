@@ -67,12 +67,12 @@ trainer.test(test_dl)                                     # 测试
 |序号|功能说明|代码|
 | ---- | ---- | ---- |
 |1|基本使用|[examples/1-basic.py](examples/1-basic.py)|
-|2|trainer、fit方法、test方法的常用参数|[examples/2-basic-params.py](examples/2-basic-params.py)|
+|2|Trainer、fit方法、test方法的常用参数|[examples/2-basic-params.py](examples/2-basic-params.py)|
 |3|模型性能评价指标的使用|[examples/3-metrics.py](examples/3-metrics.py)|
-|4|Checkpoint和EarlyStop|[examples/4-checkpoint-earlystop.py](examples/4-checkpoint-earlystop.py)|
+|4|Checkpoint与EarlyStop|[examples/4-checkpoint-earlystop.py](examples/4-checkpoint-earlystop.py)|
 |5|寻找适当的学习率|[examples/5-lr-find.py](examples/5-lr-find.py)|
 |6|利用Tensorboad记录训练过程|[examples/6-logger.py](examples/6-logger.py)|
-|7|利用tensorboard记录与可视化超参数|[examples/7-log-hyperparameters.py](examples/7-log-hyperparameters.py)|
+|7|利用Tensorboard记录与可视化超参数|[examples/7-log-hyperparameters.py](examples/7-log-hyperparameters.py)|
 |8|分析、解释或可视化模型的预测效果|[examples/8-interprete.py](examples/8-interprete.py)|
 |9|学习率调度|[examples/9-lr-schedule.py](examples/9-lr-schedule.py)|
 |10|使用多个优化器|[examples/10-multi-optimizers.py](examples/10-multi-optimizers.py)|
