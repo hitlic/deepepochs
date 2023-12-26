@@ -11,7 +11,10 @@ import torch
 import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.pyplot import MultipleLocator
-from .loops import TensorTuple
+from .loops import TensorTuple, ddict
+import yaml
+from functools import reduce
+import os
 
 
 class SeriesPlots:
@@ -241,3 +244,62 @@ def plot_confusion(c_matrix, class_num, class_names=None,
     # plt.tight_layout()
     fig.subplots_adjust(bottom=0.15)
     return fig
+
+
+def load_yaml(yaml_path, encoding='utf8'):
+    """load yaml file.
+    yaml file content:
+        data_root: &root ./data                 # anchor define
+        path: !path [*root, filename]           # use alias
+        str: !str [*root, filename]
+        items:
+        - 1
+        - 2
+        - 3
+        key: 
+        key1: value1
+        key2: value2
+    load result:
+        {
+            'data_root': './data',
+            'path': './data/filename', 
+            'str': './datafilename', 
+            'items': [1, 2, 3], 
+            'key': {
+                'key1':'value1',
+                'key2': 'value2'
+            }
+        }
+    """
+    def path_fn(loader, node):
+        items = loader.construct_sequence(node)
+        return os.path.sep.join(items)
+
+    def str_fn(loader, node):
+        items = loader.construct_sequence(node)
+        return ''.join([str(item) for item in items])
+
+    def echo_fn(loader, node):
+        seq = loader.construct_sequence(node)
+        return seq[0]
+
+    def sum_fn(loader, node):
+        seq = loader.construct_sequence(node)
+        return sum(seq)
+
+    def mul_fn(loader, node):
+        seq = loader.construct_sequence(node)
+        return reduce(lambda x, y: x*y, seq)
+
+    yaml.add_constructor('!path', path_fn)
+    yaml.add_constructor('!join', path_fn)  # forward compatible
+    yaml.add_constructor('!str', str_fn)
+    yaml.add_constructor('!cat', str_fn)    # forward compatible
+    yaml.add_constructor('!echo', echo_fn)
+    yaml.add_constructor('!sum', sum_fn)
+    yaml.add_constructor('!mul', mul_fn)
+
+    with open(yaml_path, 'r', encoding=encoding) as f:
+        cfg = yaml.load(f, Loader=yaml.FullLoader)
+
+    return ddict(cfg)
