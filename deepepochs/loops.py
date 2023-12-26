@@ -187,8 +187,10 @@ def log_batch(metrics, epoch_idx, epochs, batch_idx, batchs, stage, epoch_width=
     print_out(log_info, end='')
 
 
-def log_epoch(stages_metrics, epoch_idx, epochs, epoch_width=0, round_to=4):
-    """输出epoch指标值"""
+def log_epoch(stages_metrics, epoch_idx, epochs, epoch_width=0, round_to=4, tqdm_iter=None):
+    """输出epoch指标值
+    tqdm_iter: tqdm迭代对象
+    """
     if not stages_metrics:  # stages_metrics为空则不输出
         return
     epoch_width = 4 if epoch_width==0 else epoch_width
@@ -205,12 +207,12 @@ def log_epoch(stages_metrics, epoch_idx, epochs, epoch_width=0, round_to=4):
             val_info = '  VAL> ' + val_info
 
         log_info = f'E {epoch_idx}/{epochs}  TRAIN> {train_info}{val_info}'
-        print_out(log_info, end='\n')  # 清除光标至行末字符
+        print_out(log_info, end='\n', tqdm_iter=tqdm_iter)  # 清除光标至行末字符
     elif test_metrics is not None:
         test_info = info(test_metrics, round_to)
         log_info = f'E {epoch_idx}/{epochs}  TEST> {test_info}'
         __update_max_len(log_info)
-        print_out(log_info, end='\n')  # 清除光标至行末字符
+        print_out(log_info, end='\n', tqdm_iter=tqdm_iter)  # 清除光标至行末字符
     else:
         raise ValueError("log_epoch 参数错误!")
 
@@ -222,10 +224,13 @@ def info(m_dict, round_to):
     return ' '.join([f'{k:>}: {v_str(v):<}' for k, v in m_dict.items()])
 
 
-def print_out(content, end='\n'):
+def print_out(content, end='\n', tqdm_iter=None):
     content += ' ' * (__MAX_LOG_INFO_LEN - len(content))
-    print(end='\r')  # \x1b[1K 清除行首至光标位置字符
-    print(content, flush=True, sep='', end=end)
+    if tqdm_iter is None:
+        print(end='\r')  # \x1b[1K 清除行首至光标位置字符
+        print(content, flush=True, sep='', end=end)
+    else:
+        tqdm_iter.set_description(content.strip())
 
 
 def concat_dicts(dicts, to_np=True):

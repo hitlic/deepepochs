@@ -3,7 +3,7 @@
 DeepEpochs is a simple Pytorch deep learning model training tool(see https://github.com/hitlic/deepepochs).
 """
 
-__version__ = '0.5.17'
+__version__ = '0.5.21'
 
 from .loops import *
 from .trainer import Trainer, TrainerBase, EpochTask

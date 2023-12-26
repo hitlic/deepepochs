@@ -5,21 +5,24 @@ from ..patches import ValuePatch
 
 
 class DefaultCallback(Callback):
-    def __init__(self, long_output, log_batch):
+    def __init__(self, log_long, log_batch, log_tqdm):
         """
         默认启用的Callback，实现功能：
             指标输出
             学习率调度
             为mini-batch构建每个指标的Patch
         Args:
-            long_output: 指标输出为长格式（7位小说）还是短格式（4位小数）
-            bog_batch:   是否输出batch的指标值
+            log_long:  指标输出为长格式（7位小说）还是短格式（4位小数）
+            log_batch: 是否输出batch的指标值
+            tqdm_iter: tqdm迭代对象
         """
         super().__init__(priority=0)
-        self.round_to = 7 if long_output else 4
+        self.round_to = 7 if log_long else 4
         self.log_batch = log_batch
         self.epoch_width = 4
         self.batch_width = 5
+        self.log_tqdm = log_tqdm
+        self.tqdm_iter = None
 
     def on_before_fit(self, trainer, epochs):
         self.total_epochs = epochs
@@ -47,9 +50,9 @@ class DefaultCallback(Callback):
     def on_after_epoch(self, trainer, train_tasks, val_tasks, train_metrics, val_metrics, epoch_idx):
         if trainer.main_process:
             if val_metrics:
-                log_epoch({'train': train_metrics, 'val': val_metrics}, epoch_idx+1, self.total_epochs, self.epoch_width, self.round_to)
+                log_epoch({'train': train_metrics, 'val': val_metrics}, epoch_idx+1, self.total_epochs, self.epoch_width, self.round_to, self.tqdm_iter)
             else:
-                log_epoch({'train': train_metrics}, epoch_idx+1, self.total_epochs, self.epoch_width, self.round_to)
+                log_epoch({'train': train_metrics}, epoch_idx+1, self.total_epochs, self.epoch_width, self.round_to, self.tqdm_iter)
 
         # 根据调度器的配置改变优化器学习率
         if val_metrics:  # 优先使用验证损失

@@ -10,13 +10,13 @@ import torch
 from torch.optim import Adam
 from torch.utils.data import DataLoader
 from accelerate import Accelerator
+from .loops import (StopLoopException, LoopException, TensorTuple,
+                    flatten_dict, default_loss, concat_dicts, to_numpy, listify, batch_size, concat, detach_clone)
 from .tools import batches
 from .optimizer import Optimizer, Optimizers
 from .patches import PatchBase, MeanPatch, TensorPatch, run_patch_dict, run_patch_dicts
 from .callbacks import CallbackPool, DefaultCallback, CallbackException
-from .loops import (StopLoopException, LoopException, TensorTuple,
-                    flatten_dict, default_loss, concat_dicts, to_numpy, listify, batch_size, concat, detach_clone)
-
+from tqdm import tqdm
 
 class EpochTask:
     """一个Epoch的训练、验证或测试任务"""
@@ -183,9 +183,9 @@ class LossWrapper:
         self.do_loss = None
         self.task = None
 
-        self.total_loss = 0     # 用于实现梯度累积
-        self.model_outs = []    # 用于实现梯度累积
-        self.batch_ys = []      # 用于实现梯度累积
+        self.total_loss = 0     # 用于实现累积梯度
+        self.model_outs = []    # 用于实现累积梯度
+        self.batch_ys = []      # 用于实现累积梯度
 
     def optimize(self):
         self.trainer.callbacks.trigger('before_optimize', trainer=self)
@@ -198,9 +198,8 @@ class LossWrapper:
         Args:
             model_out:         模型预测输出
             batch_y:           标签
-            grad_accumulate:   是否梯度累积
+            grad_accumulate:   是否累积梯度
         """
-        # 训练
         if self.stage == 'train':
             # 计算损失
             loss = self.loss_fn(model_out, batch_y)
@@ -226,14 +225,13 @@ class LossWrapper:
                 return _loss
             else:
                 self.optimize()
-                # 计算平均损失，拼接多次累积度中的sub-batch的model_out和batch_y
+                # 计算平均损失，拼接多次累积度累积中的sub-batch的model_out和batch_y
                 loss_4cbk = self.total_loss / sum(batch_size(o) for o in self.model_outs)
                 model_out_4cbk = concat(self.model_outs)
                 batch_y_4cbk = concat(self.batch_ys)
                 self.total_loss = 0
                 self.model_outs = []
                 self.batch_ys = []
-        # 验证与测试
         else:
             # 验证与测试不需要实现分批，如果需要的话可使用较小的batch_size
             model_out_4cbk = model_out
@@ -258,8 +256,10 @@ class TrainerBase:
                  resume=False,
                  running_id=None,
                  hyper_params=None,
-                 long_output=False,
+                 log_long=False,
                  log_batch=True,
+                 log_tqdm=False,
+                 show_info=True,
                  compile_model=False,
                  grad_accumulate_steps=1,
                  ):
@@ -281,11 +281,14 @@ class TrainerBase:
                                                - int、str表示加载相应ID的Checkpoint
             running_id [int, str, None]:    当前训练的运行编号，用于指定日志和checkpoint的文件夹名
             hyper_params [dict, None]:      调参所关注的重要超参数，用于写入日志文件辅助调参
-            long_output [bool]:             指标输出为长格式（7位小数）还是短格式（4位小数）
+            log_long  [bool]:               指标输出为长格式（7位小数）还是短格式（4位小数）
             log_batch [bool]:               训练过程中是否每个batch输出一次指标值
+            log_tqdm  [bool]:               是否使用tqdm显示进度
             compile_model [bool]:           利用PyTorch 2.x对模型compile以提升速度（暂不支持mps、Windows [v2.1]）
             grad_accumulate_steps [int]:    累积梯度更新时的累积次数，大于1表示启用累积梯度更新
         """
+        self.show_info = show_info
+
         # 检测与配置加速设备
         if device is not None:
             self.device = device
@@ -350,7 +353,10 @@ class TrainerBase:
 
         # 配置Callbacks
         callbacks = listify(callbacks)
-        callbacks.append(DefaultCallback(long_output, log_batch))  # 自动加入DefaultCallback
+        self.log_tqdm = log_tqdm
+        log_batch = False if log_tqdm else log_batch
+        self.default_cbk = DefaultCallback(log_long, log_batch, log_tqdm)
+        callbacks.append(self.default_cbk)  # 自动加入DefaultCallback
         self.callbacks = CallbackPool(callbacks)
         self.callbacks.prepare()
 
@@ -369,6 +375,24 @@ class TrainerBase:
             self.running_id = str(running_id)
         self.hyper_params = hyper_params  # 该参数会被LogCallback使用
 
+        self.is_fit_run = False           # fit方法是否被调用
+
+    def _train_info(self):
+        self.print('=' * 50)
+        self.print(datetime.now())
+        if self.accelerator is None:
+            self.print(f"{'device:':<12} {self.device}")
+        else:  # Accerate训练下的设备信息
+            if self.accelerator.distributed_type == 'NO':  # 单进程Accerate
+                self.print(f"{'device:':<12} Accelerate-{self.device}")
+            else:   # 分布式训练-类型-进程数量
+                self.print(f"{'device:':<12} Accelerate-{self.accelerator.distributed_type}-{self.accelerator.num_processes}")
+                self.print(' '*12, "**Note: Training metrics are only calculated in the main process!")
+        self.print(f"{'running ID:':<12} {self.running_id}")
+        param_size = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        self.print(f"{'parameters:':<12} {param_size}")
+        self.print('-' * 50)
+
     def fit(self,
             train_dl: DataLoader=None,
             val_dl: DataLoader=None,
@@ -379,6 +403,7 @@ class TrainerBase:
             val_metrics: List[Callable]=None,
             train_tasks: List[EpochTask]=None,
             val_tasks: List[EpochTask]= None,
+            epochs=None,
             )-> Dict[str, list]:
         """
         训练模型。
@@ -395,25 +420,19 @@ class TrainerBase:
             train_tasks:    训练任务（EpochTask对象）列表
             val_tasks:      验证任务（EpochTask对象）列表；当需要在多个验证数据集上进行不同指标的验证时，将数据和指标封装为EpochTask
         """
-        self.print('=' * 50)
-        self.print(datetime.now())
-        if self.accelerator is None:
-            self.print(f"{'device:':<12} {self.device}")
-        else:  # Accerate训练下的设备信息
-            if self.accelerator.distributed_type == 'NO':  # 单进程Accerate
-                self.print(f"{'device:':<12} Accelerate-{self.device}")
-            else:   # 分布式训练-类型-进程数量
-                self.print(f"{'device:':<12} Accelerate-{self.accelerator.num_processes}-{self.accelerator.distributed_type}")
-                self.print(' '*12, "**Note: Training metrics are only calculated in the main process!")
-            if self.accelerator.mixed_precision != 'no':
-                self.print(f"{'mixed_precision':<12} {self.accelerator.mixed_precision}")
-        self.print(f"{'running ID:':<12} {self.running_id}")
-        param_size = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-        self.print(f"{'parameters:':<12} {param_size}")
-        self.print('-' * 50)
-
         assert not (train_dl is None and train_tasks is None), '`Trainer.fit`方法中，`train_dl`参数和`train_tasks`参数只能有一个为None！'
         assert not (train_dl is not None and train_tasks is not None), '`Trainer.fit`方法中，`train_dl`参数和`train_tasks`参数只能有一个不为None！'
+
+        if epochs is not None:
+            if not self.is_fit_run:
+                self.max_epochs = epochs            # 首次fit
+            else:
+                self.max_epochs += epochs           # 再次fit
+
+        if not self.is_fit_run and self.show_info:  # 首次fit输出信息
+            self._train_info()
+
+        self.is_fit_run = True
 
         # 配置训练与验证指标
         metrics = listify(metrics)
@@ -437,12 +456,16 @@ class TrainerBase:
             task.val_freq = val_freq
 
         # 保存各epoch的指标值，作为fit方法返回值
-        progress = defaultdict(list)
+        progress_metrics = defaultdict(list)
 
         # Fit
         self.callbacks.trigger('before_fit', trainer=self, epochs=self.max_epochs)
         try:
-            for epoch_idx in range(self.init_epoch, self.max_epochs):
+            epoch_iter = range(self.init_epoch, self.max_epochs)
+            if self.log_tqdm:
+                epoch_iter = tqdm(epoch_iter, disable=(not self.main_process), bar_format="{percentage:3.0f}%|{bar}| {desc}")
+                self.default_cbk.tqdm_iter = epoch_iter
+            for epoch_idx in epoch_iter:
                 self.callbacks.trigger('before_epoch', trainer=self, train_tasks=train_tasks, val_tasks=val_tasks, epoch_idx=epoch_idx)
                 # 训练
                 train_metric_values = {}
@@ -451,7 +474,7 @@ class TrainerBase:
                     train_task.stage = 'train'
                     train_metric_values.update(train_task())
                 self.callbacks.trigger('after_train_epochs', trainer=self, tasks=train_tasks, metrics=train_metric_values, epoch_idx=epoch_idx)
-                progress['train'].append(train_metric_values)
+                progress_metrics['train'].append(train_metric_values)
 
                 # 验证
                 val_metric_values = {}
@@ -461,8 +484,9 @@ class TrainerBase:
                         val_task.stage = 'val'
                         val_metric_values.update(val_task())
                     self.callbacks.trigger('after_val_epochs', trainer=self, tasks=val_tasks, metrics=val_metric_values, epoch_idx=epoch_idx)
-                    progress['val'].append(val_metric_values)
+                    progress_metrics['val'].append(val_metric_values)
                 self.callbacks.trigger('after_epoch', trainer=self, train_tasks=train_tasks, val_tasks=val_tasks, train_metrics=train_metric_values, val_metrics=val_metric_values, epoch_idx=epoch_idx)
+                self.init_epoch = epoch_idx + 1
         except KeyboardInterrupt:
             if self.main_process:
                 print('\nStop trainning manually!')
@@ -477,7 +501,7 @@ class TrainerBase:
                 print('\t', e, sep='')
 
         self.callbacks.trigger('after_fit', trainer=self)
-        return {k: concat_dicts(v) for k, v in progress.items()}
+        return {k: concat_dicts(v) for k, v in progress_metrics.items()}
 
     def prepare_data(self, batch_data):
         batch_x, batch_y = TensorTuple(batch_data[:-1]).to(self.device), TensorTuple(batch_data[-1:]).to(self.device)
@@ -525,7 +549,7 @@ class TrainerBase:
 
     def train_step(self, batch_x, batch_y, **step_args):
         """
-        TODO: 非常规训练可重写本方法
+        TODO: 非常规训练可修改本方法中的代码。
         Args:
             batch_x:    一个mini-batch的模型输入
             batch_y:    一个mini-batch的标签或targets
@@ -539,7 +563,7 @@ class TrainerBase:
 
     def evaluate_step(self,batch_x, batch_y, **step_args):
         """
-        TODO: 非常规验证或测试可重写本方法，也可以定义val_step方法或test_step方法。
+        TODO: 非常规验证或测试可修改本方法中的代码。也可以定义val_step方法或test_step方法。
         Args:
             batch_x:    一个mini-batch的模型输入
             batch_y:    一个mini-batch的标签或targets
@@ -559,7 +583,7 @@ class Trainer(TrainerBase):
                    **step_args
                    ) -> Dict[str, PatchBase]:
         """
-        TODO: 非常规训练可重写本方法
+        TODO: 非常规训练可修改本方法中的代码。
         Args:
             batch_x:    一个mini-batch的模型输入
             batch_y:    一个mini-batch的标签或targets
@@ -569,7 +593,6 @@ class Trainer(TrainerBase):
               或
             dict: 键为指标名，值为封装了数据和指标函数的PatchBase子类对象
         """
-        # 正常训练
         if self.grad_accumulate_steps == 1:
             model_out = self.model(*batch_x)
             # self.loss是对Trainer中loss参数的封装，会自动调用opt.zero_grad、loss.backward、opt.step等方法
@@ -580,10 +603,10 @@ class Trainer(TrainerBase):
         b_size = batch_size(batch_x)
         sub_batch_size = math.ceil(b_size / self.grad_accumulate_steps)
         for sub_batch_idx, (sub_batch_x, sub_batch_y) in enumerate(zip(batches(batch_x, sub_batch_size), batches(batch_y, sub_batch_size))):
-            if self.accelerator is None:    # DeepEpochs实现
+            if self.accelerator is None:
                 model_out = self.model(*sub_batch_x)
                 self.loss(model_out, sub_batch_y, sub_batch_idx + 1 < self.grad_accumulate_steps)
-            else:                           # Accelerate实现
+            else:
                 with self.accelerator.accumulate(self.model.model):
                     model_out = self.model(*sub_batch_x)
                     self.loss(model_out, sub_batch_y, sub_batch_idx + 1 < self.grad_accumulate_steps)
@@ -594,7 +617,7 @@ class Trainer(TrainerBase):
                       **step_args
                       ) -> Dict[str, PatchBase]:
         """
-        TODO: 非常规验证或测试可重写本方法，也可以定义val_step方法或test_step方法
+        TODO: 非常规验证或测试可修改本方法中的代码。也可以定义val_step方法或test_step方法。
         Args:
             batch_x:    一个mini-batch的模型输入
             batch_y:    一个mini-batch的标签或targets
