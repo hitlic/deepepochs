@@ -42,12 +42,13 @@ opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 # 4. --- train
 trainer = Trainer(
     model=model,                # Pytorch模型（nn.Module）
-    loss=F.cross_entropy,       # 损失函数，            默认直接返回模型预测（要求模型预测输出为损失）
+    loss=F.cross_entropy,       # 损失函数，             默认直接返回模型预测（要求模型预测输出为损失）
     opt=opt,                    # 优化器（或优化器列表）， 默认使用学习率为0.001的Adam优化器
     epochs=2,                   # 训练迭代次数，         默认取值1000
     device='cpu',               # 加速设备，cpu、cuda 或 mps，默认情况下如果存在GPU或mps设备会自动使用
-    log_long=False,          # 输出为长格式（7位小数）还是短格式（4位小数）
+    log_long=False,             # 输出为长格式（7位小数）还是短格式（4位小数）
     log_batch=True,             # 训练过程是，是否每个mini-batch都输出一次指标值
+    log_tqdm=False,             # 是否使用tqdm显示进度，如为True则log_batch将被设为False
     metric_patch='tensor',      # 指标累积计算方法，取值为'tensor'或'mean'
                                 #   - tensor 保存每个mini-batch的模型预测和标签计算epoch指标，计算和空间开销大但适用范围广
                                 #   - mean 保存每个mini-batch指标均的值，计算和空间开销小，但部分指标（如precision, recall等）不适用
