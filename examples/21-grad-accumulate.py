@@ -55,14 +55,15 @@ def main():
 
     opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 
-    # 注意：也可以不使用Accelerator，但训练速度可能由于梯度同步而变慢
+    # 注意：也可以不使用Accelerator，但多GPU训练时速度可能由于梯度同步而变慢
     device = Accelerator(split_batches=True, gradient_accumulation_steps=2)
-    # device = 'cpu'
+    device = 'cuda:0'
+    device = 'cpu'
 
     trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=2,
                       device=device,
                       metrics=[acc],
-                      grad_accumulate_steps=2
+                      gradient_accumulation_steps=1
                       )
 
     trainer.fit(train_dl, val_dl)

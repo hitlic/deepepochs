@@ -28,7 +28,7 @@ def batch_size(data):
     if isinstance(data, (list, tuple)):
         return data[0].shape[0]
     elif isinstance(data, torch.Tensor):
-        return data.shape[0]
+        return 1 if data.numel()==1 else data.shape[0]
     elif hasattr(data, '__len__'):
         return len(data)
     else:
@@ -95,6 +95,10 @@ class ddict(dict):
 def concat(datas):
     if isinstance(datas[0], (list, tuple)):
         return TensorTuple([torch.concat(ds, dim=0) if ds[0].dim()> 1 else torch.concat(ds) for ds in zip(*datas)])
+    elif datas[0] is None:
+        return datas
+    elif datas[0].numel()==1:
+        return torch.stack(datas)
     else:
         return torch.concat(datas, dim=0) if datas[0].dim() > 1 else torch.concat(datas)
 
@@ -230,7 +234,7 @@ def print_out(content, end='\n', tqdm_iter=None):
         print(end='\r')  # \x1b[1K 清除行首至光标位置字符
         print(content, flush=True, sep='', end=end)
     else:
-        tqdm_iter.set_description(content.strip())
+        tqdm_iter.set_description(content.strip().replace('E ', '', 1))
 
 
 def concat_dicts(dicts, to_np=True):

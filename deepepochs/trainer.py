@@ -5,7 +5,7 @@ import math
 import time
 from datetime import datetime
 from collections import defaultdict
-from typing import List, Dict, Callable
+from typing import List, Dict, Callable, Union, Literal
 import torch
 from torch.optim import Adam
 from torch.utils.data import DataLoader
@@ -70,7 +70,9 @@ class EpochTask:
             self.callbacks.trigger(f'before_{self.stage}_epoch', trainer=self, task=self)
             epoch_patch_dicts = []
             for batch_idx, batch_data in enumerate(self.dataloader):
-                batch_x, batch_y = self.prepare_data(batch_data)
+                # 累积梯度训练的情况下，数据暂不放入GPU，而是在划分子批量后才放进GPU
+                is_to_device = not (self.stage == 'train' and self.trainer.grad_accumulate_steps > 1)
+                batch_x, batch_y = self.prepare_data(batch_data, is_to_device)
                 self.callbacks.trigger(f'before_{self.stage}_batch', trainer=self.trainer, batch_x=batch_x, batch_y=batch_y, batch_idx=batch_idx)
 
                 # 获取mini-batch的`*step`方法
@@ -252,7 +254,7 @@ class TrainerBase:
                  device=None,
                  callbacks=None,
                  metrics=None,
-                 metric_patch:['mean', 'tensor']='tensor',
+                 metric_patch: Literal['mean', 'tensor']='tensor',
                  resume=False,
                  running_id=None,
                  hyper_params=None,
@@ -261,31 +263,32 @@ class TrainerBase:
                  log_tqdm=False,
                  show_info=True,
                  compile_model=False,
-                 grad_accumulate_steps=1,
+                 gradient_accumulation_steps=1,
                  ):
         """
         Args:
-            model:                          Pytorch模型（nn.Module）
-            loss:                           损失函数
-            opt:                            优化器，或优化器列表；优化器是Pytorch优化器或deepepochs.Optimizer对象
-            epochs [int]:                   迭代次数
-            device [str]:                   加速设备，可取值包括
-                                                - cpu、cuda、mps等Pytorch支持的设备
-                                                - Accelerator对象，利用Hugging Face Accelerate实现多机多卡或混合精度训练
-            callbacks [List[Callback]]:     Callback或Callback列表。
-            metrics [Callable]:             指标函数列表；通用于训练、验证和测试。
-            metric_patch [PatchBase]:       封装metrics所用的Patch类型，可选项为 mean 或 tensor
-            resume [bool, int, str]:        是否从logs文件平中的Checkpoint加载
-                                               - False表示不加载
-                                               - True表示从最新的Checkpoint加载
-                                               - int、str表示加载相应ID的Checkpoint
-            running_id [int, str, None]:    当前训练的运行编号，用于指定日志和checkpoint的文件夹名
-            hyper_params [dict, None]:      调参所关注的重要超参数，用于写入日志文件辅助调参
-            log_long  [bool]:               指标输出为长格式（7位小数）还是短格式（4位小数）
-            log_batch [bool]:               训练过程中是否每个batch输出一次指标值
-            log_tqdm  [bool]:               是否使用tqdm显示进度
-            compile_model [bool]:           利用PyTorch 2.x对模型compile以提升速度（暂不支持mps、Windows [v2.1]）
-            grad_accumulate_steps [int]:    累积梯度更新时的累积次数，大于1表示启用累积梯度更新
+            model:                              Pytorch模型（nn.Module）
+            loss:                               损失函数
+            opt:                                优化器，或优化器列表；优化器是Pytorch优化器或deepepochs.Optimizer对象
+            epochs [int]:                       迭代次数
+            device [str]:                       加速设备，可取值包括
+                                                    - cpu、cuda、mps等Pytorch支持的设备
+                                                    - Accelerator对象，利用Hugging Face Accelerate实现多机多卡或混合精度训练
+            callbacks [List[Callback]]:         Callback或Callback列表。
+            metrics [Callable]:                 指标函数列表；通用于训练、验证和测试。
+            metric_patch [PatchBase]:           封装metrics所用的Patch类型，可选项为 mean 或 tensor
+            resume [bool, int, str]:            是否从logs文件平中的Checkpoint加载
+                                                    - False表示不加载
+                                                    - True表示从最新的Checkpoint加载
+                                                    - int、str表示加载相应ID的Checkpoint
+            running_id [int, str, None]:        当前训练的运行编号，用于指定日志和checkpoint的文件夹名
+            hyper_params [dict, None]:          调参所关注的重要超参数，用于写入日志文件辅助调参
+            log_long  [bool]:                   指标输出为长格式（7位小数）还是短格式（4位小数）
+            log_batch [bool]:                   训练过程中是否每个batch输出一次指标值
+            log_tqdm  [bool]:                   是否使用tqdm显示进度
+            compile_model [bool]:               利用PyTorch 2.x对模型compile以提升速度（暂不支持mps、Windows [v2.1]）
+            gradient_accumulation_steps [int]:  累积梯度更新时的累积次数，大于1表示启用累积梯度更新。
+                                                    如果device参数使用Accelerator，优先使用Accelerator中的gradient_accumulation_steps。
         """
         self.show_info = show_info
 
@@ -294,8 +297,8 @@ class TrainerBase:
             self.device = device
         elif torch.cuda.is_available():
             self.device = 'cuda'
-        elif torch.backends.mps.is_available() and not compile_model:
-            self.device = 'mps'
+        # elif torch.backends.mps.is_available() and not compile_model:
+        #     self.device = 'mps'
         else:
             self.device = 'cpu'
 
@@ -320,8 +323,8 @@ class TrainerBase:
         self.model = ModelWrapper(model, self).to(self.device)
 
         # 梯度累积次数
-        assert isinstance(grad_accumulate_steps, int) and grad_accumulate_steps > 0, '梯度累积次数`grad_accumulate_steps`必须为正整数！'
-        self.grad_accumulate_steps = grad_accumulate_steps
+        assert isinstance(gradient_accumulation_steps, int) and gradient_accumulation_steps > 0, '梯度累积次数`gradient_accumulation_steps`必须为正整数！'
+        self.grad_accumulate_steps = gradient_accumulation_steps
         if self.accelerator is not None and self.accelerator.gradient_accumulation_steps > 1:
             # 优先使用accelerator中的gradient_accumulation_steps
             self.grad_accumulate_steps = self.accelerator.gradient_accumulation_steps
@@ -370,7 +373,7 @@ class TrainerBase:
         self.resume = resume  # 该参数会被CheckCallback使用
 
         if running_id is None:
-            self.running_id = str(int(time.time()))  # 以当前时间为running_id
+            self.running_id = str(int(time.time()*100))  # 以当前时间为running_id
         else:
             self.running_id = str(running_id)
         self.hyper_params = hyper_params  # 该参数会被LogCallback使用
@@ -503,8 +506,17 @@ class TrainerBase:
         self.callbacks.trigger('after_fit', trainer=self)
         return {k: concat_dicts(v) for k, v in progress_metrics.items()}
 
-    def prepare_data(self, batch_data):
-        batch_x, batch_y = TensorTuple(batch_data[:-1]).to(self.device), TensorTuple(batch_data[-1:]).to(self.device)
+    def prepare_data(self, batch_data, to_device):
+        """
+        划分模型输入和标签，并根据to_device将数据放入GPU或其他加速设备
+        Args:
+            batch_data: Dataloader的返回的批量数据
+            to_device: True表示将数据放入设备，False表示不放入。累积梯度情况下，数据在划分更小的批量后才放进GPU。
+        """
+        if to_device:
+            batch_x, batch_y = TensorTuple(batch_data[:-1]).to(self.device), TensorTuple(batch_data[-1:]).to(self.device)
+        else:
+            batch_x, batch_y = TensorTuple(batch_data[:-1]), TensorTuple(batch_data[-1:])
         return batch_x, batch_y[0] if len(batch_y)==1 else batch_y
 
     def test(self, test_dl: DataLoader=None, metrics:List[Callable]=None, do_loss:bool=True, tasks:List[EpochTask]=None)-> dict:
@@ -578,8 +590,8 @@ class TrainerBase:
 
 class Trainer(TrainerBase):
     def train_step(self,
-                   batch_x:[torch.Tensor, List[torch.Tensor]],
-                   batch_y:[torch.Tensor, List[torch.Tensor]],
+                   batch_x: Union[torch.Tensor, List[torch.Tensor]],
+                   batch_y: Union[torch.Tensor, List[torch.Tensor]],
                    **step_args
                    ) -> Dict[str, PatchBase]:
         """
@@ -603,6 +615,8 @@ class Trainer(TrainerBase):
         b_size = batch_size(batch_x)
         sub_batch_size = math.ceil(b_size / self.grad_accumulate_steps)
         for sub_batch_idx, (sub_batch_x, sub_batch_y) in enumerate(zip(batches(batch_x, sub_batch_size), batches(batch_y, sub_batch_size))):
+            # 将子批量数据放入GPU
+            sub_batch_x, sub_batch_y = sub_batch_x.to(self.device), sub_batch_y.to(self.device)
             if self.accelerator is None:
                 model_out = self.model(*sub_batch_x)
                 self.loss(model_out, sub_batch_y, sub_batch_idx + 1 < self.grad_accumulate_steps)
@@ -612,8 +626,8 @@ class Trainer(TrainerBase):
                     self.loss(model_out, sub_batch_y, sub_batch_idx + 1 < self.grad_accumulate_steps)
 
     def evaluate_step(self,
-                      batch_x:[torch.Tensor, List[torch.Tensor]],
-                      batch_y:[torch.Tensor, List[torch.Tensor]],
+                      batch_x: Union[torch.Tensor, List[torch.Tensor]],
+                      batch_y: Union[torch.Tensor, List[torch.Tensor]],
                       **step_args
                       ) -> Dict[str, PatchBase]:
         """
