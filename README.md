@@ -23,7 +23,7 @@ pip install deepepochs
   - 返回值为当前mini-batch上计算的指标值或字典
   - 支持基于`torchmetrics.functional`定义指标
 
-#### 应用
+#### 实例
 
 ```python
 import torch
@@ -62,7 +62,7 @@ trainer.fit(train_dl, val_dl)                             # 训练、验证
 trainer.test(test_dl)                                     # 测试
 ```
 
-### 示例
+### 更多实例
 
 |序号|功能说明|代码|
 | ---- | ---- | ---- |
