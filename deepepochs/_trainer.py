@@ -11,22 +11,25 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader
 from accelerate import Accelerator
 from .loops import (StopLoopException, LoopException, TensorTuple,
-                    flatten_dict, default_loss, concat_dicts, to_numpy, listify, batch_size, concat, detach_clone)
+                    flatten_dict, default_loss, concat_dicts, to_numpy, listify, concat, detach_clone)
+from .loops import batch_size as guess_batch_size
 from .tools import batches
 from .optimizer import Optimizer, Optimizers
 from .patches import PatchBase, MeanPatch, TensorPatch, run_patch_dict, run_patch_dicts
 from .callbacks import CallbackPool, DefaultCallback, CallbackException
 from tqdm import tqdm
 
+
 class EpochTask:
     """一个Epoch的训练、验证或测试任务"""
-    def __init__(self, dataloader, metrics=None, do_loss=True, **step_args):
+    def __init__(self, dataloader, metrics=None, do_loss=True, batch_size=None, **step_args):
         """
         Args:
-            dataloader: pytorch Dataloader
-            metrics:    指标函数列表
-            do_loss:    验证和测试中是否计算据损失
-            step_args:  其他需要传递给`step`、`train_step`、`val_step`、`test_step`和`evaluate`方法的参数
+            dataloader:  pytorch Dataloader
+            metrics:     指标函数列表
+            do_loss:     验证和测试中是否计算据损失
+            batch_size:  指定batch_size，用于猜测batch_size可能失效的情况，例如GNN
+            step_args:   其他需要传递给`step`、`train_step`、`val_step`、`test_step`和`evaluate`方法的参数
         """
         self.dataloader = dataloader
         self.batchs = len(dataloader)
@@ -37,6 +40,7 @@ class EpochTask:
         self.val_freq = None
         self.step_args = step_args
         self.batch_patch_dict = {}   # 由DefaultCallback中的on_train/val/test_prediction回调注入
+        self.explicit_batch_size = batch_size
 
     def __len__(self):
         return self.batchs
@@ -114,6 +118,15 @@ class EpochTask:
             epoch_metrics_values = flatten_dict(run_patch_dicts(epoch_patch_dicts), sep='')
             self.callbacks.trigger(f'after_{self.stage}_epoch', trainer=self.trainer, task=self, metrics=epoch_metrics_values)
             return epoch_metrics_values
+
+    def find_batch_size(self, data):
+        """
+        确定batch_size，如果在fit方法中指定则使用指定的batch_size，否则进行猜测
+        """
+        if self.explicit_batch_size is not None:
+            return self.explicit_batch_size
+        else:
+            return guess_batch_size(data)
 
 
 class ModelWrapper:
@@ -216,21 +229,30 @@ class LossWrapper:
 
             # 记录各sub-batch的总损失、模型输出、标签
             _loss = loss.detach().clone()
-            self.total_loss += _loss * batch_size(model_out)
+            self.total_loss += _loss * self.trainer.find_batch_size(model_out)
             self.model_outs.append(detach_clone(model_out))
             self.batch_ys.append(batch_y)
 
-            # 梯度累积
+            # --- 累积梯度
+            # 如果当前batch是中间sub_batch
             if grad_accumulate:
                 if self.trainer.accelerator is not None: # DeepEpochs的梯度累积要求仅最后一个sub-batch优化
                     self.optimize()                      # Accelerate的梯度累积要求每个sub-batch都优化
                 return _loss
+            # 如果当前batch是最后一个sub_batch，或唯一的batch（没有使用梯度累积）
             else:
                 self.optimize()
                 # 计算平均损失，拼接多次累积度累积中的sub-batch的model_out和batch_y
-                loss_4cbk = self.total_loss / sum(batch_size(o) for o in self.model_outs)
-                model_out_4cbk = concat(self.model_outs)
-                batch_y_4cbk = concat(self.batch_ys)
+                loss_4cbk = self.total_loss / sum(self.trainer.find_batch_size(o) for o in self.model_outs)
+
+                try:
+                    model_out_4cbk = self.model_outs[0] if len(self.model_outs) == 1 else concat(self.model_outs)
+                    batch_y_4cbk = self.batch_ys[0] if len(self.batch_ys) == 1 else concat(self.batch_ys)
+                # 如果concat失败则放弃concat，以应对复杂的模型输出；而且要考虑到在GNN中batchsize为1的情况。
+                except RuntimeError:
+                    model_out_4cbk = self.model_outs[0] if len(self.model_outs) == 1 else self.model_outs
+                    batch_y_4cbk = self.batch_ys[0] if len(self.batch_ys) == 1 else self.batch_ys
+
                 self.total_loss = 0
                 self.model_outs = []
                 self.batch_ys = []
@@ -291,6 +313,7 @@ class TrainerBase:
                                                     如果device参数使用Accelerator，优先使用Accelerator中的gradient_accumulation_steps。
         """
         self.show_info = show_info
+        self.current_task = None
 
         # 检测与配置加速设备
         if device is not None:
@@ -402,6 +425,7 @@ class TrainerBase:
             metrics: List[Callable]=None,
             val_freq: int=1,
             do_val_loss: bool=True,
+            batch_size: int=None,
             train_metrics: List[Callable]=None,
             val_metrics: List[Callable]=None,
             train_tasks: List[EpochTask]=None,
@@ -418,10 +442,12 @@ class TrainerBase:
             metrics:        指标函数列表；同时用于训练和验证的。指标函数应当有(预测，标签)两个参数，并返回一个mini-batch的指标均值。
             val_freq:       验证频率
             do_val_loss:    是否计算验证损失
+            batch_size:     指定batch_size，用于猜测batch_size可能失效的情况，例如GNN
             train_metrics:  训练指标函数列表；可与metrics参数同时使用
             val_metrics:    验证指标函数列表；可与metrics参数同时使用
             train_tasks:    训练任务（EpochTask对象）列表
             val_tasks:      验证任务（EpochTask对象）列表；当需要在多个验证数据集上进行不同指标的验证时，将数据和指标封装为EpochTask
+            epochs:         指定当前训练的迭代次数
         """
         assert not (train_dl is None and train_tasks is None), '`Trainer.fit`方法中，`train_dl`参数和`train_tasks`参数只能有一个为None！'
         assert not (train_dl is not None and train_tasks is not None), '`Trainer.fit`方法中，`train_dl`参数和`train_tasks`参数只能有一个不为None！'
@@ -446,14 +472,14 @@ class TrainerBase:
         # 配置训练任务
         train_tasks = listify(train_tasks)
         if train_dl is not None:
-            train_tasks.insert(0, EpochTask(train_dl, metrics=self.train_metrics))
+            train_tasks.insert(0, EpochTask(train_dl, metrics=self.train_metrics, batch_size=batch_size))
         for task in train_tasks:
             task.trainer = self
 
         # 配置验证任务
         val_tasks = listify(val_tasks)
         if val_dl is not None:
-            val_tasks.insert(0, EpochTask(val_dl, metrics=self.val_metrics, do_loss=do_val_loss))
+            val_tasks.insert(0, EpochTask(val_dl, metrics=self.val_metrics, do_loss=do_val_loss, batch_size=batch_size))
         for task in val_tasks:
             task.trainer = self
             task.val_freq = val_freq
@@ -474,6 +500,7 @@ class TrainerBase:
                 train_metric_values = {}
                 self.callbacks.trigger('before_train_epochs', trainer=self, tasks=train_tasks, epoch_idx=epoch_idx)
                 for train_task in train_tasks:
+                    self.current_task = train_task
                     train_task.stage = 'train'
                     train_metric_values.update(train_task())
                 self.callbacks.trigger('after_train_epochs', trainer=self, tasks=train_tasks, metrics=train_metric_values, epoch_idx=epoch_idx)
@@ -484,6 +511,7 @@ class TrainerBase:
                 if val_tasks and (epoch_idx + 1) % val_freq == 0:
                     self.callbacks.trigger('before_val_epochs', trainer=self, tasks=val_tasks, epoch_idx=epoch_idx)
                     for val_task in val_tasks:
+                        self.current_task = val_task
                         val_task.stage = 'val'
                         val_metric_values.update(val_task())
                     self.callbacks.trigger('after_val_epochs', trainer=self, tasks=val_tasks, metrics=val_metric_values, epoch_idx=epoch_idx)
@@ -519,13 +547,14 @@ class TrainerBase:
             batch_x, batch_y = TensorTuple(batch_data[:-1]), TensorTuple(batch_data[-1:])
         return batch_x, batch_y[0] if len(batch_y)==1 else batch_y
 
-    def test(self, test_dl: DataLoader=None, metrics:List[Callable]=None, do_loss:bool=True, tasks:List[EpochTask]=None)-> dict:
+    def test(self, test_dl: DataLoader=None, metrics:List[Callable]=None, do_loss:bool=True, batch_size:int=None, tasks:List[EpochTask]=None)-> dict:
         """
         Args:
-            test_dl: 测试Dataloader
-            metrics: 测试指标函数列表
-            do_loss: 是否计算测试损失
-            tasks:   测试任务（EpochTask对象）列表；当需要在多个测试数据集上进行不同指标的测试时，将数据和指标封装为EpochTask
+            test_dl:     测试Dataloader
+            metrics:     测试指标函数列表
+            do_loss:     是否计算测试损失
+            batch_size:  指定batch_size，用于猜测batch_size可能失效的情况，例如GNN
+            tasks:       测试任务（EpochTask对象）列表；当需要在多个测试数据集上进行不同指标的测试时，将数据和指标封装为EpochTask
         """
         assert not (test_dl is None and tasks is None), '`Trainer.test`方法中，`train_dl`参数和`task`参数不能同时为None！'
         if self.main_process:
@@ -536,7 +565,7 @@ class TrainerBase:
         # 配置测试任务
         test_tasks = listify(tasks)
         if test_dl is not None:
-            task = EpochTask(test_dl, metrics=self.test_metrics, do_loss=do_loss)
+            task = EpochTask(test_dl, metrics=self.test_metrics, do_loss=do_loss, batch_size=batch_size)
             test_tasks.insert(0, task)
         for task in test_tasks:
             task.trainer = self
@@ -546,6 +575,7 @@ class TrainerBase:
             test_metric_values = {}
             self.callbacks.trigger('before_test_epochs', trainer=self, tasks=test_tasks)
             for task in test_tasks:
+                self.current_task = task
                 task.stage = 'test'
                 metric_values = task()
                 test_metric_values.update(metric_values)
@@ -587,6 +617,10 @@ class TrainerBase:
         """
         raise NotImplementedError("`Trainer.evaluate_step`方法未实现！")
 
+    def find_batch_size(self, data):
+        """确定当前task的batch_size"""
+        return self.current_task.find_batch_size(data)
+
 
 class Trainer(TrainerBase):
     def train_step(self,
@@ -612,7 +646,7 @@ class Trainer(TrainerBase):
             return
 
         # 累积梯度训练
-        b_size = batch_size(batch_x)
+        b_size = self.find_batch_size(batch_x)
         sub_batch_size = math.ceil(b_size / self.grad_accumulate_steps)
         for sub_batch_idx, (sub_batch_x, sub_batch_y) in enumerate(zip(batches(batch_x, sub_batch_size), batches(batch_y, sub_batch_size))):
             # 将子批量数据放入GPU
@@ -645,3 +679,4 @@ class Trainer(TrainerBase):
         model_out = self.model(*batch_x)
         # self.loss是对Trainer中loss参数的封装，会自动调用opt.zero_grad、loss.backward、opt.step等方法
         self.loss(model_out, batch_y)
+

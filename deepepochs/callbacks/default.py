@@ -1,6 +1,6 @@
 import torch
 from .callback import Callback
-from ..loops import log_batch, log_epoch, batch_size
+from ..loops import log_batch, log_epoch
 from ..patches import ValuePatch
 
 
@@ -90,7 +90,7 @@ class DefaultCallback(Callback):
         task.batch_patch_dict = self.make_patch_dict(trainer, loss, model_out, batch_y, task.metrics, 'test')
 
     def make_patch_dict(self, trainer, loss, model_out, batch_y, metrics, stage):
-        b_size = torch.tensor(batch_size(model_out)).to(trainer.device)
+        b_size = torch.tensor(trainer.find_batch_size(model_out)).to(trainer.device)
         # Accelerate 分布式训练时，获取各Process的数据
         if trainer.accelerator is not None and stage!='train':  # 训练时仅在主线程上计算指标
             if loss is not None:
@@ -104,5 +104,5 @@ class DefaultCallback(Callback):
 
         patch_dict = {} if loss is None else  {'loss': ValuePatch(loss, b_size)}
         for m in metrics:
-            patch_dict[m.__name__] = trainer.metric_patch(m, model_out, batch_y)
+            patch_dict[m.__name__] = trainer.metric_patch(m, model_out, batch_y, batch_size=b_size)
         return patch_dict

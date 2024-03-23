@@ -141,7 +141,7 @@ def add_patch_value(self_obj, obj):
 
 
 class TensorPatch(PatchBase):
-    def __init__(self, metric, batch_preds, batch_targets=None, name=None, single_batch=True):
+    def __init__(self, metric, batch_preds, batch_targets=None, batch_size=None, name=None, single_batch=True):
         """
         用于累积多个mini-batch的preds和targets，计算Epoch的指标。
         例如：
@@ -160,6 +160,7 @@ class TensorPatch(PatchBase):
             metric:         计算指标的函数（或其他适当的可调用对象）
             batch_pres:     一个mini_batch的模型预测
             batch_targets:  一个mini_batch的标签（当指标计算不需要标签时为空值）
+            batch_size:     指定batch_size
             name:           显示在输出日志中的名称
             single_batch:   batch_preds, batch_targets中包含的是单个还是多个batch的Patch
         """
@@ -183,8 +184,17 @@ class TensorPatch(PatchBase):
         self.concat = torch.concat if isinstance(self.batch_preds[0][0], torch.Tensor) else np.concatenate
 
     def forward(self):
-        preds = [self.concat(bpreds, 0) for bpreds in zip(*self.batch_preds)]
-        targets = None if self.batch_targets is None else [self.concat(btargets, 0) for btargets in zip(*self.batch_targets)]
+        try:
+            # 合并各batch中的模型输出
+            preds = [bpreds[0] if len(bpreds)==1 else self.concat(bpreds, 0) for bpreds in zip(*self.batch_preds)]
+            # 合并各batch的学习目标（标签）
+            targets = None if self.batch_targets is None else \
+                    [btargets[0] if len(btargets)==1 else self.concat(btargets, 0) for btargets in zip(*self.batch_targets)]
+        # 如果concat失败则放弃concat，以应对复杂的模型输出；而且要考虑到在GNN中batchsize为1的情况。
+        except (RuntimeError, TypeError):
+            preds = self.batch_preds
+            targets = self.batch_targets
+
         preds = preds[0] if len(preds) == 1 else preds
         targets = targets[0] if len(targets) == 1 else targets
         return self.metric(preds, targets)
@@ -201,19 +211,20 @@ class TensorPatch(PatchBase):
 
 
 class MeanPatch(PatchBase):
-    def __init__(self, metric, batch_preds, batch_targets=None, name=None):
+    def __init__(self, metric, batch_preds, batch_targets=None, batch_size=None, name=None):
         """
         用于累积多个mini-batch的指标值，计算Epoch的指标。
         Args:
             metric: 计算指标的函数（或其他适当的可调用对象），必须返回经过平均指标值。
             batch_pres: 一个mini_batch的模型预测
             batch_targets: 一个mini_batch的标签（当指标计算不需要标签时为空值）
+            batch_size: 指定batch_size
             name: 显示在输出日志中的名称
         """
         super().__init__(name)
         assert callable(metric), '指标`metric`应当是一个可调用对象！'
         self.metric = metric
-        self.batch_size = len(batch_preds)
+        self.batch_size = len(batch_preds) if batch_size is None else batch_size
         m_value = metric(batch_preds, batch_targets)
         if isinstance(m_value, dict):
             self.batch_value = {k: v * self.batch_size for k, v in m_value.items()}
