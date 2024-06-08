@@ -25,10 +25,10 @@ class LossWrapper:
         self.batch_ys = []      # 用于实现累积梯度
 
     def optimize(self):
-        self.trainer.callbacks.trigger('before_optimize', trainer=self)
+        self.trainer.callbacks.trigger('before_optimize', trainer=self.trainer)
         self.trainer.opt.step()
         self.trainer.opt.zero_grad()
-        self.trainer.callbacks.trigger('after_optimize', trainer=self)
+        self.trainer.callbacks.trigger('after_optimize', trainer=self.trainer)
 
     def __call__(self, model_out, batch_y, grad_accumulate=False):
         """
@@ -42,12 +42,12 @@ class LossWrapper:
             loss = self.loss_fn(model_out, batch_y)
 
             # backward
-            self.trainer.callbacks.trigger('before_backward', trainer=self, loss=loss)
+            self.trainer.callbacks.trigger('before_backward', trainer=self.trainer, loss=loss)
             if self.trainer.accelerator is None:
                 (loss/self.trainer.grad_accumulate_steps).backward()
             else:       # accelerate的backward
                 self.trainer.accelerator.backward(loss/self.trainer.grad_accumulate_steps)
-            self.trainer.callbacks.trigger('after_backward', trainer=self, loss=loss)
+            self.trainer.callbacks.trigger('after_backward', trainer=self.trainer, loss=loss)
 
             # 记录各sub-batch的总损失、模型输出、标签
             _loss = loss.detach().clone()

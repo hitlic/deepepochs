@@ -107,11 +107,6 @@ class TensorTuple(tuple):
     """
     tuple of tensors
     """
-    def __new__(cls, tensors):
-        if isinstance(tensors, torch.Tensor):
-            tensors=(tensors,)
-        return tuple.__new__(cls, tensors)
-
     @property
     def device(self):
         if len(self) > 0:
@@ -120,29 +115,29 @@ class TensorTuple(tuple):
             return torch.device(type='cpu')
 
     def to(self, device, **kwargs):
-        return TensorTuple(t.to(device, **kwargs) if isinstance(t, torch.Tensor) else t for t in self)
+        return TensorTuple(t.to(device, **kwargs) if isinstance(t, torch.Tensor) or hasattr(t, 'to') else t for t in self)
 
     def cpu(self):
-        return TensorTuple(t.cpu() if isinstance(t, torch.Tensor) else t for t in self)
+        return TensorTuple(t.cpu() if isinstance(t, torch.Tensor) or hasattr(t, 'cpu') else t for t in self)
 
     def clone(self):
-        return TensorTuple(t.clone() if isinstance(t, torch.Tensor) else t for t in self)
+        return TensorTuple(t.clone() if isinstance(t, torch.Tensor) or hasattr(t, 'clone') else t for t in self)
 
     def detach(self):
-        return TensorTuple(t.detach() if isinstance(t, torch.Tensor) else t for t in self)
+        return TensorTuple(t.detach() if isinstance(t, torch.Tensor) or hasattr(t, 'detach') else t for t in self)
 
     @property
     def data(self):
-        return TensorTuple(t.data if isinstance(t, torch.Tensor) else t for t in self)
+        return TensorTuple(t.data if isinstance(t, torch.Tensor) or  hasattr(t, 'data') else t for t in self)
 
     def float(self):
-        return TensorTuple(t.float() if isinstance(t, torch.Tensor) else t for t in self)
+        return TensorTuple(t.float() if isinstance(t, torch.Tensor) or hasattr(t, 'float') else t for t in self)
 
     def long(self):
-        return TensorTuple(t.long() if isinstance(t, torch.Tensor) else t for t in self)
+        return TensorTuple(t.long() if isinstance(t, torch.Tensor) or hasattr(t, 'long') else t for t in self)
 
     def int(self):
-        return TensorTuple(t.int() if isinstance(t, torch.Tensor) else t for t in self)
+        return TensorTuple(t.int() if isinstance(t, torch.Tensor) or hasattr(t, 'int') else t for t in self)
 
 
 def flatten_dict(d, parent_key='', sep='.'):

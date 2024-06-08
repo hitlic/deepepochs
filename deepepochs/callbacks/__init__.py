@@ -8,3 +8,4 @@ from .log import LogCallback
 from .lr_find import LRFindCallback
 from .analyze import AnalyzeCallback
 from .interprete import InterpreteCallback
+from .grad_clip import GradClipCallback
