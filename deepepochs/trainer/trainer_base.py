@@ -4,7 +4,7 @@
 import time
 from datetime import datetime
 from collections import defaultdict
-from typing import List, Dict, Callable, Literal
+from typing import List, Dict, Callable, Literal, Union
 import torch
 from torch.optim import Adam
 from torch.utils.data import DataLoader
@@ -176,7 +176,7 @@ class TrainerBase:
             metrics: List[Callable]=None,
             val_freq: int=1,
             do_val_loss: bool=True,
-            batch_size: int=None,
+            batch_size: Union[int, Callable]=None,
             train_metrics: List[Callable]=None,
             val_metrics: List[Callable]=None,
             train_tasks: List[EpochTask]=None,
@@ -193,7 +193,9 @@ class TrainerBase:
             metrics:        指标函数列表；同时用于训练和验证的。指标函数应当有(预测，标签)两个参数，并返回一个mini-batch的指标均值。
             val_freq:       验证频率
             do_val_loss:    是否计算验证损失
-            batch_size:     指定batch_size，用于猜测batch_size可能失效的情况，例如GNN
+            batch_size:     整数或者函数，用于计算batch_size。
+                                若为整数，则在损失和指标计算中直接使用该数值；
+                                若为函数，则函数的参数为(batch_x, batch_y)，返回一个整数。
             train_metrics:  训练指标函数列表；可与metrics参数同时使用
             val_metrics:    验证指标函数列表；可与metrics参数同时使用
             train_tasks:    训练任务（EpochTask对象）列表
@@ -302,13 +304,15 @@ class TrainerBase:
 
         return batch_x, batch_y[0] if len(batch_y)==1 else batch_y
 
-    def test(self, test_dl: DataLoader=None, metrics:List[Callable]=None, do_loss:bool=True, batch_size:int=None, tasks:List[EpochTask]=None)-> dict:
+    def test(self, test_dl: DataLoader=None, metrics:List[Callable]=None, do_loss:bool=True, batch_size:Union[int, Callable]=None, tasks:List[EpochTask]=None)-> dict:
         """
         Args:
             test_dl:     测试Dataloader
             metrics:     测试指标函数列表
             do_loss:     是否计算测试损失
-            batch_size:  指定batch_size，用于猜测batch_size可能失效的情况，例如GNN
+            batch_size:  整数或者函数，用于计算batch_size。
+                            若为整数，则在损失和指标计算中直接使用该数值；
+                            若为函数，则函数的参数为(batch_x, batch_y)，返回一个整数。
             tasks:       测试任务（EpochTask对象）列表；当需要在多个测试数据集上进行不同指标的测试时，将数据和指标封装为EpochTask
         """
         assert not (test_dl is None and tasks is None), '`Trainer.test`方法中，`train_dl`参数和`task`参数不能同时为None！'
@@ -372,6 +376,6 @@ class TrainerBase:
         """
         raise NotImplementedError("`Trainer.evaluate_step`方法未实现！")
 
-    def find_batch_size(self, data):
+    def find_batch_size(self, batch_x, batch_y):
         """确定当前task的batch_size"""
-        return self.current_task.find_batch_size(data)
+        return self.current_task.find_batch_size(batch_x, batch_y)

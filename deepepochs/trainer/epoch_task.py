@@ -15,7 +15,9 @@ class EpochTask:
             dataloader:  pytorch Dataloader
             metrics:     指标函数列表
             do_loss:     验证和测试中是否计算据损失
-            batch_size:  指定batch_size，用于猜测batch_size可能失效的情况，例如GNN
+            batch_size:  整数或者函数，用于计算batch_size。
+                            若为整数，则在损失和指标计算中直接使用该数值；
+                            若为函数，则函数的参数为(batch_x, batch_y)，返回一个整数。
             step_args:   其他需要传递给`step`、`train_step`、`val_step`、`test_step`和`evaluate`方法的参数
         """
         self.dataloader = dataloader
@@ -106,11 +108,14 @@ class EpochTask:
             self.callbacks.trigger(f'after_{self.stage}_epoch', trainer=self.trainer, task=self, metrics=epoch_metrics_values)
             return epoch_metrics_values
 
-    def find_batch_size(self, data):
+    def find_batch_size(self, batch_x, batch_y):
         """
         确定batch_size，如果在fit方法中指定则使用指定的batch_size，否则进行猜测
         """
         if self.explicit_batch_size is not None:
-            return self.explicit_batch_size
+            if callable(self.explicit_batch_size):    # 使用fit或test中给出的函数精确计算batch_size
+                return self.explicit_batch_size(batch_x, batch_y)
+            else:
+                return self.explicit_batch_size
         else:
-            return guess_batch_size(data)
+            return guess_batch_size(batch_x)

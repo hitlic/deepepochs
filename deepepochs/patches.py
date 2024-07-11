@@ -18,6 +18,7 @@ import torch
 import numpy as np
 from .metrics import confusion_matrix, accuracy, precision, recall, fbeta
 from .loops import keyset
+from copy import deepcopy
 
 
 def patch_name(key, patch):
@@ -41,6 +42,7 @@ def run_patch_dicts(patch_dicts):
     """
     if len(patch_dicts) == 0:
         return None
+
     return {patch_name(k, patch_dicts[0][k]): sum(dic[k] for dic in patch_dicts if dic)() for k in keyset(patch_dicts)}
 
 
@@ -123,6 +125,7 @@ class ValuePatch(PatchBase):
 
 
 def add_patch_value(self_obj, obj):
+    self_obj = deepcopy(self_obj)
     if isinstance(self_obj.batch_value, dict):
         assert isinstance(obj.batch_value, dict) and len(self_obj.batch_value) == len(obj.batch_value), '相加的两个Patch值不匹配！'
         keys = self_obj.batch_value.keys()
@@ -233,7 +236,7 @@ class MeanPatch(PatchBase):
             return self.batch_value / self.batch_size
 
     def add(self, obj):
-        assert self.metric is obj.metric, '相加的两个Patch的`metric`不一致'
+        # assert self.metric is obj.metric, '相加的两个Patch的`metric`不一致'
         return add_patch_value(self, obj)
 
 

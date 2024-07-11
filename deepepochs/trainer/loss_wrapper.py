@@ -51,7 +51,7 @@ class LossWrapper:
 
             # 记录各sub-batch的总损失、模型输出、标签
             _loss = loss.detach().clone()
-            self.total_loss += _loss * self.trainer.find_batch_size(model_out)
+            self.total_loss += _loss * self.trainer.find_batch_size(model_out, batch_y)
             self.model_outs.append(detach_clone(model_out))
             self.batch_ys.append(batch_y)
 
@@ -65,7 +65,7 @@ class LossWrapper:
             else:
                 self.optimize()
                 # 计算平均损失，拼接多次累积度累积中的sub-batch的model_out和batch_y
-                loss_4cbk = self.total_loss / sum(self.trainer.find_batch_size(o) for o in self.model_outs)
+                loss_4cbk = self.total_loss / sum(self.trainer.find_batch_size(o, y) for o, y in zip(self.model_outs, self.batch_ys))
 
                 try:
                     model_out_4cbk = self.model_outs[0] if len(self.model_outs) == 1 else concat(self.model_outs)

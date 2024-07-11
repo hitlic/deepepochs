@@ -65,15 +65,15 @@ opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 
 trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=2,
                   metrics=[acc],                        # 1. 在训练、验证和测试中使用的指标
-                  log_tqdm=True
                   )
 
 progress = trainer.fit(train_dl, val_dl,
                         metrics=[multi_metrics],        # 2. 在训练和验证中使用的指标
                         train_metrics=[multi_metrics],  # 3. 仅在训练中使用的指标
                         val_metrics=[multi_metrics],    # 4. 仅在验证中使用的指标
-                        batch_size=64
+                        batch_size=64                   # 5. 特殊情况下需指定batch_size；或者计算batch_size大小的函数，该函数参数为(batch_x, batch_y)返回batch_size大小
                         )
 test_rst = trainer.test(test_dl,
-                        metrics=[recall]                # 5. 仅在测试中使用的指标
+                        metrics=[recall],               # 6. 仅在测试中使用的指标
+                        batch_size=64                   # 同5.
                         )

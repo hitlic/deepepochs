@@ -38,7 +38,7 @@ opt1 = torch.optim.Adam(model.parameters(), lr=2e-4)
 opt2 = torch.optim.Adam(model.parameters(), lr=2e-4)
 
 opts = [opt1, opt2]                         # 第一种方式
-opts = [Optimizer(opt1), Optimizer(opt2)]   # 第二种方式，这种方式可为每个优化器指定高度器
+opts = [Optimizer(opt1), Optimizer(opt2)]   # 第二种方式，这种方式可为每个优化器指定调度器
 
 trainer = Trainer(model, F.cross_entropy, opts, epochs=2)
 trainer.fit(train_dl, val_dl)
