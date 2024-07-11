@@ -15,6 +15,7 @@ from .loops import TensorTuple, ddict
 import yaml
 from functools import reduce
 import os
+from torch.optim.lr_scheduler import _LRScheduler
 
 
 class SeriesPlots:
@@ -303,3 +304,36 @@ def load_yaml(yaml_path, encoding='utf8'):
         cfg = yaml.load(f, Loader=yaml.FullLoader)
 
     return ddict(cfg)
+
+
+class LinearCosineScheduler(_LRScheduler):
+    """
+    学习率调度器：先线性热身，然后余弦衰减。
+    """
+    def __init__(self, optimizer, max_val, warmup_steps, total_steps, min_val=None, last_epoch=-1):
+        """
+        Args:
+            optimizer: 优化器
+            max_val (float): 最大学习率
+            warmup_steps (int): 热身次数
+            total_steps (int): 最大调度次数
+            min_val (float, optional): 最小学习率. Defaults to None.
+            last_epoch (int, optional): Defaults to -1.
+        """
+        super().__init__(optimizer, last_epoch)
+        self.max_val = max_val
+        self.warmup_steps = warmup_steps
+        self.total_steps = total_steps
+        if min_val is None:
+            min_val = max_val * (1 + np.cos((total_steps - warmup_steps + 1) * np.pi / (total_steps - self.warmup_steps + 2))) / 2
+        self.min_val = min_val
+
+    def get_lr(self):
+        step = self.last_epoch
+        if step < self.warmup_steps:
+            lr = self.max_val * (step + 1) / self.warmup_steps
+        elif self.warmup_steps <= step <= self.total_steps:
+            lr = (self.max_val - self.min_val) * (1 + np.cos((step - self.warmup_steps + 1) * np.pi / (self.total_steps - self.warmup_steps + 1))) / 2 + self.min_val
+        else:
+            lr = self.min_val
+        return [lr for _ in self.optimizer.param_groups]

@@ -8,13 +8,34 @@ from typing import Iterable
 import torch
 import numpy as np
 import random as rand
+import time
 
 
-def seed(seed):
+def set_seed(seed):
+    seed = int(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
     rand.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    # torch.backends.cudnn.benchmark = False
+    if torch.backends.mps.is_available():
+        torch.mps.manual_seed(seed)
+
+
+def make_runningid(task=None, seed=None, other_info=None, time_precision=1):
+    """构造runningid的工具函数"""
+    timestamp = str(int(time.time()*time_precision))
+    contents = [timestamp]
+    if task:
+        contents.append(str(task))
+    if seed:
+        contents.append(str(seed))
+    if other_info:
+        contents.append(str(other_info))
+    return '-'.join(contents)
 
 
 def rename(newname):
@@ -159,7 +180,7 @@ def __update_max_len(log_info): # 更新最长串
     __MAX_LOG_INFO_LEN = info_len if info_len > __MAX_LOG_INFO_LEN else __MAX_LOG_INFO_LEN
 
 
-def log_batch(metrics, epoch_idx, epochs, batch_idx, batchs, stage, epoch_width=0, batch_width=0, round_to=4):
+def log_batch(metrics, epoch_idx, epochs, batch_idx, batchs, stage, epoch_width=0, batch_width=0, round_to=4, tqdm_iter=None):
     """
     输出batch指标值
     Args:
@@ -183,7 +204,7 @@ def log_batch(metrics, epoch_idx, epochs, batch_idx, batchs, stage, epoch_width=
 
     log_info = f'E {epoch_idx}/{epochs}  B {batch_idx}/{batchs}  {stage}> {batch_info}'
     __update_max_len(log_info)
-    print_out(log_info, end='')
+    print_out(log_info, end='', tqdm_iter=tqdm_iter)
 
 
 def log_epoch(stages_metrics, epoch_idx, epochs, epoch_width=0, round_to=4, tqdm_iter=None):
@@ -229,7 +250,7 @@ def print_out(content, end='\n', tqdm_iter=None):
         print(end='\r')  # \x1b[1K 清除行首至光标位置字符
         print(content, flush=True, sep='', end=end)
     else:
-        tqdm_iter.set_description(content.strip().replace('E ', '', 1))
+        tqdm_iter.set_description_str(content)
 
 
 def concat_dicts(dicts, to_np=True):

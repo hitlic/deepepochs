@@ -26,7 +26,7 @@ class EpochTask:
         self.stage = None
         self.val_freq = None
         self.step_args = step_args
-        self.batch_patch_dict = {}   # 由DefaultCallback中的on_train/val/test_prediction回调注入
+        self.batch_patch_dict = {}   # 由DefaultCallback中的on_train/val/test_metrics回调注入
         self.explicit_batch_size = batch_size
 
     def __len__(self):

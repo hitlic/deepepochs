@@ -56,7 +56,7 @@ class MyTask(EpochTask):
 
         results = {}
         if loss is not None:
-            results = {'loss1': ValuePatch(loss.detach(), batch_size=len(model_out))}         # 1. 利用ValuePatch返回损失值，并命名为loss1
+            results = {'loss1': ValuePatch(loss.detach(), batch_size=len(model_out))}        # 1. 利用ValuePatch返回损失值，并命名为loss1
 
         results['tacc'] = TensorPatch(mm.accuracy, model_out, batch_y)                       # 2. 利用TensorPatch返回计算accuracy指标的数据
         results['macc'] = MeanPatch(mm.accuracy, model_out, batch_y)                         # 3. 利用MeanPatch返回计算accuracy指标的数据

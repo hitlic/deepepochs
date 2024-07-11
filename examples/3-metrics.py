@@ -15,6 +15,7 @@ data_dir = './datasets'
 transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
 mnist_full = MNIST(data_dir, train=True, transform=transform, download=True)
 train_ds, val_ds, _ = random_split(mnist_full, [5000, 5000, 50000])
+train_ds, val_ds, _ = random_split(mnist_full, [45000, 15000, 0])
 test_ds = MNIST(data_dir, train=False, transform=transform, download=True)
 
 # dataloaders
@@ -64,6 +65,7 @@ opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 
 trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=2,
                   metrics=[acc],                        # 1. 在训练、验证和测试中使用的指标
+                  log_tqdm=True
                   )
 
 progress = trainer.fit(train_dl, val_dl,

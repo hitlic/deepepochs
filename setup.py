@@ -23,7 +23,7 @@ setuptools.setup(
     keywords='',
     packages=setuptools.find_packages(exclude=['__pycache__', '__pycache__/*']),
     py_modules=[],  # any single-file Python modules that aren’t part of a package
-    install_requires=['torch>=1.13', 'pyyaml>=5.4', 'tqdm>=4.62', 'numpy>1.21', 'matplotlib>=3.6', 'tensorboard>=2.12', 'scikit-learn>=0.22', 'pandas>=1.3', 'accelerate>=0.24'],
+    install_requires=['torch>=2.0.0', 'pyyaml>=5.4', 'tqdm>=4.62', 'numpy>1.21', 'matplotlib>=3.6', 'tensorboard>=2.12', 'scikit-learn>=0.22', 'pandas>=1.3', 'accelerate>=0.24'],
     python_requires='>=3.8'
 )
 

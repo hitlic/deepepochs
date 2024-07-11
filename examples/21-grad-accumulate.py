@@ -13,7 +13,7 @@
         from accelerate import notebook_launcher
         notebook_launcher(main, args=(), num_processes=2, mixed_precision="fp16")
 """
-from deepepochs import Trainer, metrics as dm, seed
+from deepepochs import Trainer, metrics as dm, set_seed
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -22,7 +22,7 @@ from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
 from accelerate import Accelerator
 
-seed(1)
+set_seed(1)
 
 def main():
     # datasets

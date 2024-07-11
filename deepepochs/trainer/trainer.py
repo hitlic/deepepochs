@@ -16,7 +16,7 @@ class Trainer(TrainerBase):
                    **step_args
                    ) -> Dict[str, PatchBase]:
         """
-        TODO: 非常规训练可修改本方法中的代码。
+        实现了累积梯度训练。
         Args:
             batch_x:    一个mini-batch的模型输入
             batch_y:    一个mini-batch的标签或targets

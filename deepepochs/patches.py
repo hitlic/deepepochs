@@ -1,20 +1,15 @@
 """
 @author: liuchen
 1. Patch是对一个或多个mini-batch运行结果的封装，用于batch指标计算、epoch指标计算。
-2. Patch有三个重要方法：
-    - forward:  无参数，用于计算或处理封装的数据
-    - add:      参数为另一个Patch对象，返回一个由两个Patch相加合并而成的新的Patch对象
-3. Patch的类型
-    - ValuePatch:    
-    - MetricPatch:   forward方法返回一个指标值或指标字典
-    - MetricFnPatch: forward方法返回一个指标值或指标字典
-4. 内置Patch
+2. Patch的重要方法：
+    - forward:  无参数，用于计算或处理封装的数据，返回指标值或指标字典
+3. 内置Patch
     - PatchBase
         - patches.ValuePatch:       参数为 mean_value和batch_size
         - patches.TensorPatch:      参数为 metric、preds和targets，存储每个mini-batch的preds和targets用于计算epoch指标
         - patches.MeanPatch:        参数为 metric、preds和targets，存储指标均值和batch_size用于计算epoch指标（precision、recall、f1等不能使用）
         - patches.ConfusionPatch:   参数为 preds和targets，一次性计算基于混淆矩阵的指标
-5. 定制Patch
+4. 定制Patch
     - 定制用于计算指标的Patch可继承MetricPatch，实现forward方法和add方法
 """
 import abc
@@ -25,24 +20,24 @@ from .metrics import confusion_matrix, accuracy, precision, recall, fbeta
 from .loops import keyset
 
 
-def patch_name(k, patch):
+def patch_name(key, patch):
     name = getattr(patch, 'name', None)
     if name is None:
-        return k
+        return key
     else:
         return name
 
 
 def run_patch_dict(patch_dict):
     """
-    计算一个Patch字典的指标值（计算Batch指标）
+    计算一个Patch字典的指标值（用于计算Batch指标）
     """
     return {patch_name(k, v): v() for k, v in patch_dict.items()}
 
 
 def run_patch_dicts(patch_dicts):
     """
-    计算Patch字典的列表的指标值（计算Epoch指标）
+    计算Patch字典的列表的指标值（用于计算Epoch指标）
     """
     if len(patch_dicts) == 0:
         return None

@@ -131,7 +131,7 @@ class TrainerBase:
         # 配置Callbacks
         callbacks = listify(callbacks)
         self.log_tqdm = log_tqdm
-        log_batch = False if log_tqdm else log_batch
+        # log_batch = False if log_tqdm else log_batch
         self.default_cbk = DefaultCallback(log_long, log_batch, log_tqdm)
         callbacks.append(self.default_cbk)  # 自动加入DefaultCallback
         self.callbacks = CallbackPool(callbacks)
@@ -147,7 +147,7 @@ class TrainerBase:
         self.resume = resume  # 该参数会被CheckCallback使用
 
         if running_id is None:
-            self.running_id = str(int(time.time()*100))  # 以当前时间为running_id
+            self.running_id = str(int(time.time()*100))  # 以当前timestamp为running_id
         else:
             self.running_id = str(running_id)
         self.hyper_params = hyper_params  # 该参数会被LogCallback使用
@@ -294,6 +294,7 @@ class TrainerBase:
         """
         batch_x, batch_y = batch_data[:-1], batch_data[-1:]
         batch_x = [TensorTuple(x) if isinstance(x, (list, tuple)) else x for x in batch_x]
+        batch_y = [TensorTuple(y) if isinstance(y, (list, tuple)) else y for y in batch_y]
         batch_x, batch_y = TensorTuple(batch_x), TensorTuple(batch_y)
 
         if to_device:
