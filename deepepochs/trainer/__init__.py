@@ -1,3 +1,2 @@
-from .trainer import Trainer
-from .trainer_base import TrainerBase
+from .trainer import Trainer, TrainerBase
 from .epoch_task import EpochTask

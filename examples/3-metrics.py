@@ -42,11 +42,11 @@ def acc(preds, targets):
     指标函数的参数为： (模型预测输出, 标签)
             返回值： 当前mini-batch各样本指标的均值
     """
-    return dm.accuracy(preds, targets)
+    return dm.accuracy(preds=preds, targets=targets)
 
 # 指标函数2
 def recall(preds, targets):
-    return dm.recall(preds, targets, average='macro')
+    return dm.recall(preds=preds, targets=targets, average='macro')
 
 # 指标函数3
 @rename('')
@@ -57,8 +57,8 @@ def multi_metrics(preds, targets):
     3. 可利用rename来改变函数名，或者直接通过指标函数的__name__属性改变函数名。
     """
     return {
-        'p': dm.precision(preds, targets, average='macro'),
-        'r': dm.recall(preds, targets, average='macro')
+        'mp': dm.precision(preds=preds, targets=targets, average='macro'),
+        'mr': dm.recall(preds=preds, targets=targets, average='macro')
         }
 
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
@@ -68,12 +68,14 @@ trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=2,
                   )
 
 progress = trainer.fit(train_dl, val_dl,
-                        metrics=[multi_metrics],        # 2. 在训练和验证中使用的指标
-                        train_metrics=[multi_metrics],  # 3. 仅在训练中使用的指标
-                        val_metrics=[multi_metrics],    # 4. 仅在验证中使用的指标
-                        batch_size=64                   # 5. 特殊情况下需指定batch_size；或者计算batch_size大小的函数，该函数参数为(batch_x, batch_y)返回batch_size大小
+                        metrics=[multi_metrics],            # 2. 在训练和验证中使用的指标
+                        train_metrics=[multi_metrics],      # 3. 仅在训练中使用的指标
+                        val_metrics=[multi_metrics],        # 4. 仅在验证中使用的指标
+                        # batch_size=32                     # 5. 特殊情况下需指定batch_size或者能计算batch_size的函数，用于准确计算损失和指标
+                                                            #    若为函数，则参数为(batch_x, batch_y)，返回batch_size大小
+                        batch_size= lambda x, y: x.shape[0]
                         )
 test_rst = trainer.test(test_dl,
-                        metrics=[recall],               # 6. 仅在测试中使用的指标
-                        batch_size=64                   # 同5.
+                        metrics=[recall],                   # 6. 仅在测试中使用的指标
+                        batch_size=32                       # 同5.
                         )

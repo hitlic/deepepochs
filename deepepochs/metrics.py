@@ -98,7 +98,14 @@ def get_class_num(preds, targets):
     return num_classes
 
 
-def accuracy(preds=None, targets=None, conf_mat=None):
+def accuracy(conf_mat=None, preds=None, targets=None):
+    """
+    基于conf_mat或(preds, targets)计算Accuracy。conf_mat和(preds, targets)不能同时为None。
+    Args:
+        conf_mat: 混淆矩阵
+        preds:    预测值
+        targets:  标签
+    """
     __check_params(preds, targets, average='micro', conf_mat=conf_mat)
     if conf_mat is None:
         num_class = get_class_num(preds, targets)
@@ -109,7 +116,15 @@ def accuracy(preds=None, targets=None, conf_mat=None):
     return sum(conf_mat[i, i] for i in range(num_class))/conf_mat.sum()
 
 
-def recall(preds=None, targets=None, average='micro', conf_mat=None):
+def recall(conf_mat=None, preds=None, targets=None, average='micro'):
+    """
+    基于conf_mat或(preds, targets)计算Recall。conf_mat和(preds, targets)不能同时为None。
+    Args:
+        conf_mat: 混淆矩阵
+        preds:    预测值
+        targets:  标签
+        average:  平均方式
+    """
     __check_params(preds, targets, average=average, conf_mat=conf_mat)
     if conf_mat is None:
         num_class = get_class_num(preds, targets)
@@ -129,7 +144,15 @@ def recall(preds=None, targets=None, average='micro', conf_mat=None):
         return v
 
 
-def precision(preds=None, targets=None, average='micro', conf_mat=None):
+def precision(conf_mat=None, preds=None, targets=None, average='micro'):
+    """
+    基于conf_mat或(preds, targets)计算Precision。conf_mat和(preds, targets)不能同时为None。
+    Args:
+        conf_mat: 混淆矩阵
+        preds:    预测值
+        targets:  标签
+        average:  平均方式
+    """
     __check_params(preds, targets, average=average, conf_mat=conf_mat)
     if conf_mat is None:
         num_class = get_class_num(preds, targets)
@@ -148,7 +171,15 @@ def precision(preds=None, targets=None, average='micro', conf_mat=None):
         return sum(p*w for p, w in zip(ps, weights))
 
 
-def fbeta(preds=None, targets=None, beta=1, average='micro', conf_mat=None):
+def fbeta(conf_mat=None, preds=None, targets=None, beta=1, average='micro'):
+    """
+    基于conf_mat或(preds, targets)计算F-beta。conf_mat和(preds, targets)不能同时为None。
+    Args:
+        conf_mat: 混淆矩阵
+        preds:    预测值
+        targets:  标签
+        average:  平均方式
+    """
     __check_params(preds, targets, average=average, conf_mat=conf_mat)
     if conf_mat is None:
         num_class = get_class_num(preds, targets)
@@ -168,5 +199,13 @@ def fbeta(preds=None, targets=None, beta=1, average='micro', conf_mat=None):
         return v
 
 
-def f1(preds=None, targets=None, average='micro', conf_mat=None):
-    return fbeta(preds, targets, 1, average=average, conf_mat=conf_mat)
+def f1(conf_mat=None, preds=None, targets=None, average='micro'):
+    """
+    基于conf_mat或(preds, targets)计算F1。conf_mat和(preds, targets)不能同时为None。
+    Args:
+        conf_mat: 混淆矩阵
+        preds:    预测值
+        targets:  标签
+        average:  平均方式
+    """
+    return fbeta(conf_mat, preds, targets, 1, average=average)

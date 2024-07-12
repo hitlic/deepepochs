@@ -49,9 +49,10 @@ trainer = Trainer(
     log_long=False,             # 输出为长格式（7位小数）还是短格式（4位小数）
     log_batch=True,             # 训练过程是，是否每个mini-batch都输出一次指标值
     log_tqdm=False,             # 是否使用tqdm显示进度，如为True则log_batch将被设为False
-    metric_patch='tensor',      # 指标累积计算方法，取值为'tensor'或'mean'
-                                #   - tensor 保存每个mini-batch的模型预测和标签计算epoch指标，计算和空间开销大但适用范围广
-                                #   - mean 保存每个mini-batch指标均的值，计算和空间开销小，但部分指标（如precision, recall等）不适用
+    metric_patch='tensor',      # 指标累积计算方法，取值为'tensor'、'mean'或'confusion'
+                                #   - tensor    保存每个mini-batch的模型预测和标签计算epoch指标，计算和空间开销大但适用范围广
+                                #   - mean      保存每个mini-batch指标均的值，计算和空间开销小，但部分指标（如precision, recall等）不适用
+                                #   - confusion 保存每个mini-batch的混淆矩阵，计算和空间开销小，要求指标的输入必须为混淆矩阵
     )
 
 trainer.fit(

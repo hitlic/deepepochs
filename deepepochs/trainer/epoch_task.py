@@ -29,7 +29,10 @@ class EpochTask:
         self.val_freq = None
         self.step_args = step_args
         self.batch_patch_dict = {}   # 由DefaultCallback中的on_train/val/test_metrics回调注入
-        self.explicit_batch_size = batch_size
+        if batch_size is not None:
+            assert isinstance(batch_size, int) or callable(batch_size), 'batch_size必须是整数或者参数为(batch_x, batch_y)返回整数的函数！'
+        self.batch_size_param = batch_size
+        self.current_batch_size = None
 
     def __len__(self):
         return self.batchs
@@ -63,9 +66,9 @@ class EpochTask:
             self.callbacks.trigger(f'before_{self.stage}_epoch', trainer=self, task=self)
             epoch_patch_dicts = []
             for batch_idx, batch_data in enumerate(self.dataloader):
-                # 累积梯度训练的情况下，数据暂不放入GPU，而是在划分子批量后才放进GPU
-                is_to_device = not (self.stage == 'train' and self.trainer.grad_accumulate_steps > 1)
-                batch_x, batch_y = self.prepare_data(batch_data, is_to_device)
+                to_device = not (self.stage == 'train' and not self.trainer.auto_traindata_to_device)
+                batch_x, batch_y = self.prepare_data(batch_data, to_device)
+                self.current_batch_size = self.get_batch_size(batch_x, batch_y)
                 self.callbacks.trigger(f'before_{self.stage}_batch', trainer=self.trainer, batch_x=batch_x, batch_y=batch_y, batch_idx=batch_idx)
 
                 # 获取mini-batch的`*step`方法
@@ -108,14 +111,14 @@ class EpochTask:
             self.callbacks.trigger(f'after_{self.stage}_epoch', trainer=self.trainer, task=self, metrics=epoch_metrics_values)
             return epoch_metrics_values
 
-    def find_batch_size(self, batch_x, batch_y):
+    def get_batch_size(self, batch_x, batch_y):
         """
-        确定batch_size，如果在fit方法中指定则使用指定的batch_size，否则进行猜测
+        确定batch_size。如果在fit方法中指定则使用指定的batch_size，否则进行猜测
         """
-        if self.explicit_batch_size is not None:
-            if callable(self.explicit_batch_size):    # 使用fit或test中给出的函数精确计算batch_size
-                return self.explicit_batch_size(batch_x, batch_y)
-            else:
-                return self.explicit_batch_size
-        else:
+        if isinstance(self.batch_size_param, int):
+            return self.batch_size_param
+        elif self.batch_size_param is None:
             return guess_batch_size(batch_x)
+        else:
+            batch_x = batch_x[0] if len(batch_x)==1 else batch_x
+            return self.batch_size_param(batch_x, batch_y)

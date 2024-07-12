@@ -24,9 +24,9 @@ test_dl = DataLoader(test_ds, batch_size=32)
 @rename('')
 def multi_metrics(preds, targets):
     return {
-        'acc': dm.accuracy(preds, targets),
-        'p': dm.precision(preds, targets),
-        'r': dm.recall(preds, targets)
+        'acc': dm.accuracy(preds=preds, targets=targets),
+        'p': dm.precision(preds=preds, targets=targets),
+        'r': dm.recall(preds=preds, targets=targets)
         }
 
 lr_s = [0.001, 0.01]

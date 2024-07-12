@@ -1,8 +1,6 @@
 """
 @author: liuchen
 """
-from ..loops import concat, detach_clone
-
 
 class LossWrapper:
     """
@@ -20,22 +18,19 @@ class LossWrapper:
         self.do_loss = None
         self.task = None
 
-        self.total_loss = 0     # 用于实现累积梯度
-        self.model_outs = []    # 用于实现累积梯度
-        self.batch_ys = []      # 用于实现累积梯度
-
     def optimize(self):
         self.trainer.callbacks.trigger('before_optimize', trainer=self.trainer)
         self.trainer.opt.step()
         self.trainer.opt.zero_grad()
         self.trainer.callbacks.trigger('after_optimize', trainer=self.trainer)
 
-    def __call__(self, model_out, batch_y, grad_accumulate=False):
+    def __call__(self, model_out, batch_y, loss_adjust=1.0, grad_accumulate=False):
         """
         Args:
-            model_out:         模型预测输出
-            batch_y:           标签
-            grad_accumulate:   是否累积梯度
+            model_out:          模型预测输出
+            batch_y:            标签
+            loss_adjust:        用于累积梯度训练时对反向传播时用的梯度进行调整，以使累积梯度训练结果与正常训练一致（参见例22、23）
+            grad_accumulate:    值为True时不调用optimize和on_metric_callback（参见例22、23）
         """
         if self.stage == 'train':
             # 计算损失
@@ -44,47 +39,26 @@ class LossWrapper:
             # backward
             self.trainer.callbacks.trigger('before_backward', trainer=self.trainer, loss=loss)
             if self.trainer.accelerator is None:
-                (loss/self.trainer.grad_accumulate_steps).backward()
+                (loss * loss_adjust).backward()
             else:       # accelerate的backward
-                self.trainer.accelerator.backward(loss/self.trainer.grad_accumulate_steps)
+                self.trainer.accelerator.backward(loss * loss_adjust)
             self.trainer.callbacks.trigger('after_backward', trainer=self.trainer, loss=loss)
 
-            # 记录各sub-batch的总损失、模型输出、标签
-            _loss = loss.detach().clone()
-            self.total_loss += _loss * self.trainer.find_batch_size(model_out, batch_y)
-            self.model_outs.append(detach_clone(model_out))
-            self.batch_ys.append(batch_y)
-
-            # --- 累积梯度
-            # 如果当前batch是中间sub_batch
-            if grad_accumulate:
-                if self.trainer.accelerator is not None: # DeepEpochs的梯度累积要求仅最后一个sub-batch优化
-                    self.optimize()                      # Accelerate的梯度累积要求每个sub-batch都优化
-                return _loss
-            # 如果当前batch是最后一个sub_batch，或唯一的batch（没有使用梯度累积）
-            else:
-                self.optimize()
-                # 计算平均损失，拼接多次累积度累积中的sub-batch的model_out和batch_y
-                loss_4cbk = self.total_loss / sum(self.trainer.find_batch_size(o, y) for o, y in zip(self.model_outs, self.batch_ys))
-
-                try:
-                    model_out_4cbk = self.model_outs[0] if len(self.model_outs) == 1 else concat(self.model_outs)
-                    batch_y_4cbk = self.batch_ys[0] if len(self.batch_ys) == 1 else concat(self.batch_ys)
-                # 如果concat失败则放弃concat，以应对复杂的模型输出；而且要考虑到在GNN中batchsize为1的情况。
-                except RuntimeError:
-                    model_out_4cbk = self.model_outs[0] if len(self.model_outs) == 1 else self.model_outs
-                    batch_y_4cbk = self.batch_ys[0] if len(self.batch_ys) == 1 else self.batch_ys
-
-                self.total_loss = 0
-                self.model_outs = []
-                self.batch_ys = []
+            if not grad_accumulate:
+                self.optimize()                                     # 更新参数
+                self.on_metric_callback(loss, model_out, batch_y)   # 触发指标计算回调
         else:
-            # 验证与测试不需要实现分批，如果需要的话可使用较小的batch_size
-            model_out_4cbk = model_out
-            batch_y_4cbk = batch_y
             if self.do_loss:
-                loss_4cbk = self.loss_fn(model_out, batch_y)
+                loss = self.loss_fn(model_out, batch_y)
             else:
-                loss_4cbk = None
-        self.trainer.callbacks.trigger(f'{self.stage}_metrics', trainer=self.trainer, loss=loss_4cbk, model_out=model_out_4cbk, batch_y=batch_y_4cbk, task=self.task)
-        return loss_4cbk
+                loss = None
+            self.on_metric_callback(loss, model_out, batch_y)       # 触发指标计算回调
+        return loss
+
+    def on_metric_callback(self, loss, model_out, batch_y):
+        """触发指标计算回调"""
+        if loss is not None and hasattr(loss, 'detach'):
+            loss = loss.detach().clone()
+        if model_out is not None and hasattr(model_out, 'detach'):
+            model_out = model_out.detach().clone()
+        self.trainer.callbacks.trigger(f'{self.stage}_metrics', trainer=self.trainer, loss=loss, model_out=model_out, batch_y=batch_y, task=self.task)

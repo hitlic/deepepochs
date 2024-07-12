@@ -47,7 +47,6 @@ def rename(newname):
 
 def batch_size(data):
     if isinstance(data, (list, tuple)):
-        # return data[0].shape[0]
         return batch_size(data[0])
     elif isinstance(data, torch.Tensor):
         return 1 if data.numel()==1 else data.shape[0]

@@ -151,13 +151,16 @@ class TopKQueue(PriorityQueue):
 
 def batches(inputs, batch_size):
     """
-    把inputs按batch_size进行划分
+    把inputs按batch_size进行划分.
+    Args:
+        inputs: Tenor或Tensor列表。注意，不能是列表的列表！
     """
     is_list_input = isinstance(inputs, (list, tuple))  # inputs是否是多个输入组成的列表或元素
     start_idx = 0
     is_over = False
     while True:
         if is_list_input:
+            assert all(not isinstance(data, (list, tuple)) for data in inputs), '`inputs`的元素不能是列表或元组！'
             batch = TensorTuple([data[start_idx: start_idx + batch_size] for data in inputs])
             is_over = len(batch[0]) > 0
             start_idx += len(batch[0])

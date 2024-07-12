@@ -158,7 +158,7 @@ class TensorPatch(PatchBase):
             metric:         计算指标的函数（或其他适当的可调用对象）
             batch_pres:     一个mini_batch的模型预测
             batch_targets:  一个mini_batch的标签（当指标计算不需要标签时为空值）
-            batch_size:     指定batch_size
+            batch_size:     指定batch_size（兼容性需要）
             name:           显示在输出日志中的名称
             single_batch:   batch_preds, batch_targets中包含的是单个还是多个batch的Patch
         """
@@ -240,16 +240,47 @@ class MeanPatch(PatchBase):
         return add_patch_value(self, obj)
 
 
+
 class ConfusionPatch(PatchBase):
+    def __init__(self, metric, batch_preds, batch_targets, batch_size=None, name=None):
+        """
+        累积计算混淆矩阵的Patch。
+        Args:
+            metric:        以混淆矩阵为输入的指标
+            batch_preds:    模型预测
+            batch_targets:  标签
+            batch_size:     指定batch_size（兼容性需要）
+            name:           显示在输出日志中的名称
+        """
+        super().__init__(name)
+        self.metric = metric
+        if batch_preds.shape[1] == 1:
+            num_classes = int((max(batch_targets) + 1).item())
+        else:
+            num_classes = batch_preds.shape[1]
+        self.num_classes = num_classes
+        self.confusion_matrix = confusion_matrix(batch_preds, batch_targets, num_classes)
+
+    def forward(self):
+        return self.metric(self.confusion_matrix)
+
+    def add(self, obj):
+        assert self.confusion_matrix.shape == obj.confusion_matrix.shape, '相加的两个Patch中数据的类别数量不相等！'
+        new_obj = deepcopy(self)
+        new_obj.confusion_matrix += obj.confusion_matrix
+        return new_obj
+
+
+class ConfusionMatrics(PatchBase):
     def __init__(self, batch_preds, batch_targets,
                  metrics=('accuracy', 'precision', 'recall', 'f1', 'fbeta'),
                  average: Literal['micro', 'macro', 'weighted']='micro', beta=1.0, name='C.'):
         """
-        能够累积计算基于混淆矩阵的指标，包括'accuracy', 'precision', 'recall', 'f1', 'fbeta'等。
+        能够累积计算基于混淆矩阵的指标，包括'accuracy', 'precision', 'recall', 'f1', 'fbeta'等。可在定制的steps方法中使用。
         Args:
             batch_preds:    模型预测
             batch_targets:  标签
-            metrics:        需计算的标签，'accuracy', 'precision', 'recall', 'f1', 'fbeta'中的一个或多个
+            metrics:        需计算的指标，'accuracy', 'precision', 'recall', 'f1', 'fbeta'中的一个或多个
             average:        多分类下的平均方式'micro', 'macro', 'weighted'之一
             beta:           F_beta中的beta
             name:           显示在输出日志中的名称
@@ -284,8 +315,9 @@ class ConfusionPatch(PatchBase):
         assert self.confusion_matrix.shape == obj.confusion_matrix.shape, '相加的两个Patch中数据的类别数量不相等！'
         assert set(self.metrics) == set(obj.metrics), '相加的两个Patch的`metrics`不一致!'
         assert self.average == obj.average, '相加的两个Patch的`average`不一致!'
-        self.confusion_matrix += obj.confusion_matrix
-        return self
+        new_obj = deepcopy(self)
+        new_obj.confusion_matrix += obj.confusion_matrix
+        return new_obj
 
     def accuracy(self):
         return accuracy(conf_mat=self.confusion_matrix)

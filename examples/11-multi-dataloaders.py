@@ -32,13 +32,13 @@ model = nn.Sequential(
 )
 
 def acc(preds, targets):
-    return dm.accuracy(preds, targets)
+    return dm.accuracy(preds=preds, targets=targets)
 
 def p(preds, targets):
-    return dm.precision(preds, targets)
+    return dm.precision(preds=preds, targets=targets)
 
 def r(preds, targets):
-    return dm.recall(preds, targets)
+    return dm.recall(preds=preds, targets=targets)
 
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=6)

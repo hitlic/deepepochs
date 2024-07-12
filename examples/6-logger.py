@@ -33,7 +33,7 @@ model = nn.Sequential(
 )
 
 def acc(preds, targets):
-    return dm.accuracy(preds, targets)
+    return dm.accuracy(preds=preds, targets=targets)
 
 logger = LogCallback(
     log_dir='./logs',               # 日志保存位置，默认为 ./logs

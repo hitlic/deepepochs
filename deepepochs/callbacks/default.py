@@ -77,15 +77,6 @@ class DefaultCallback(Callback):
         if self.log_batch and trainer.main_process:
             log_batch(metrics, self.global_test_epoch_idx+1, self.total_test_epochs, self.global_test_batch_idx, self.total_test_batchs, 'TEST', self.epoch_width, self.batch_width, self.round_to, self.tqdm_iter)
 
-    def on_before_train_batch(self, trainer, batch_x, batch_y, batch_idx):
-        self.batch_x = batch_x
-
-    def on_before_val_batch(self, trainer, batch_x, batch_y, batch_idx):
-        self.batch_x = batch_x
-
-    def on_before_test_batch(self, trainer, batch_x, batch_y, batch_idx):
-        self.batch_x = batch_x
-
     def on_train_metrics(self, trainer, loss, model_out, batch_y, task):
         """当前task的每个指标构建Patch，并注入task.batch_patch_dict"""
         task.batch_patch_dict = self.make_patch_dict(trainer, loss, model_out, batch_y, task.metrics, 'train')
@@ -100,9 +91,9 @@ class DefaultCallback(Callback):
 
     def make_patch_dict(self, trainer, loss, model_out, batch_y, metrics, stage):
         # 获取batch_size大小
-        b_size = trainer.find_batch_size(self.batch_x, batch_y)
+        b_size = trainer.current_task.current_batch_size
         if not isinstance(b_size, torch.Tensor):
-            b_size = torch.tensor(b_size)
+            b_size = torch.tensor(b_size)   # 转为张量，用于分布式训练
         b_size = b_size.to(trainer.device)
 
         # Accelerate 分布式训练时，获取各Process的数据

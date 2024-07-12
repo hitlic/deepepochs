@@ -36,7 +36,7 @@ model = nn.Sequential(
 )
 
 def acc(preds, targets):
-    return dm.accuracy(preds, targets)
+    return dm.accuracy(preds=preds, targets=targets)
 
 # CheckCallback同时实现了Checkpoint和Early Stopping
 checker = CheckCallback(

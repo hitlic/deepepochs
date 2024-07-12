@@ -14,7 +14,7 @@
 5. 在定制训练、验证或测试步时，可以利用这四种Patch作为返回字典的值。
 """
 
-from deepepochs import Trainer, ValuePatch, TensorPatch, MeanPatch, ConfusionPatch, EpochTask, metrics as mm
+from deepepochs import Trainer, ValuePatch, TensorPatch, MeanPatch, ConfusionMatrics, EpochTask, metrics as mm
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -49,6 +49,9 @@ opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 trainer = Trainer(model, F.cross_entropy, opt, epochs=2)
 
 
+def acc(preds, targets):
+    return mm.accuracy(preds=preds, targets=targets)
+
 class MyTask(EpochTask):
     def step(self, batch_x, batch_y, **step_args):
         model_out = self.model(*batch_x)
@@ -58,9 +61,9 @@ class MyTask(EpochTask):
         if loss is not None:
             results = {'loss1': ValuePatch(loss.detach(), batch_size=len(model_out))}        # 1. 利用ValuePatch返回损失值，并命名为loss1
 
-        results['tacc'] = TensorPatch(mm.accuracy, model_out, batch_y)                       # 2. 利用TensorPatch返回计算accuracy指标的数据
-        results['macc'] = MeanPatch(mm.accuracy, model_out, batch_y)                         # 3. 利用MeanPatch返回计算accuracy指标的数据
-        results['cm'] = ConfusionPatch(model_out, batch_y, metrics=['accuracy'], name='C.')  # 4. 利用ConfusionPatch返回计算accuracy指标的数据
+        results['tacc'] = TensorPatch(acc, model_out, batch_y)                       # 2. 利用TensorPatch返回计算accuracy指标的数据
+        results['macc'] = MeanPatch(acc, model_out, batch_y)                         # 3. 利用MeanPatch返回计算accuracy指标的数据
+        results['cm'] = ConfusionMatrics(model_out, batch_y, metrics=['accuracy'], name='C.')  # 4. 利用ConfusionPatch返回计算accuracy指标的数据
         return results
 
 

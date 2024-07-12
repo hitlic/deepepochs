@@ -83,10 +83,13 @@ trainer.test(test_dl)                                     # 测试
 |15|通过`TrainerBase`定制`train_step`和`evaluate_step`|[examples/15-customize-steps-1.py](examples/15-customize-steps-1.py)|
 |16|通过`EpochTask`定制`train_step`和`eval_step`和`test_step`|[examples/16-customize-steps-2.py](examples/16-customize-steps-2.py)|
 |17|通过`EpochTask`定制`step`|[examples/17-costomize-steps-3.py](examples/17-costomize-steps-3.py)|
-|18|内置Patch的使用|[examples/18-use_patches.py](examples/18-use_patches.py)|
-|19|自定义Patch|[examples/19-customize-patch.py](examples/19-customize-patch.py)|
-|20|分布式训练、混合精度训练|[examples/20-accelerate.py](examples/20-accelerate.py)|
-|21|梯度累积|[examples/21-grad-accumulate.py](examples/21-grad-accumulate.py)|
+|18|内置Patch的使用1|[examples/18-use_patches-1.py](examples/18-use_patches-1.py)|
+|19|内置Patch的使用2|[examples/19-use_patches-2.py](examples/19-use_patches-2.py)|
+|20|自定义Patch|[examples/20-customize-patch.py](examples/20-customize-patch.py)|
+|21|分布式训练、混合精度训练|[examples/21-accelerate.py](examples/21-accelerate.py)|
+|22|定制`train_step`实现累积梯度训练|[examples/22-grad_accumulate-1.py](examples/22-grad_accumulate-1.py)|
+|23|定制`train_step`，利用Accelerate实现累积梯度训练|[examples/23-grad_accumulate-2.py](examples/23-grad_accumulate-2.py)|
+
 
 ### 定制
 
