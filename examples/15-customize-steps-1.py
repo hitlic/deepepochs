@@ -65,7 +65,7 @@ class Trainer(TrainerBase):
         self.loss(model_out, batch_y)
 
         # 记录指标值
-        results = {'m_': TensorPatch(metrics, model_out, batch_y)}
+        results = {'m_': TensorPatch(metrics).load(model_out, batch_y)}
         return results
 
     def evaluate_step(self, batch_x, batch_y, **step_args):
@@ -83,7 +83,7 @@ class Trainer(TrainerBase):
         self.loss(model_out, batch_y)
 
         # 记录指标值
-        results = {'m_': TensorPatch(metrics, model_out, batch_y)}
+        results = {'m_': TensorPatch(metrics).load(model_out, batch_y)}
         return results
 
 

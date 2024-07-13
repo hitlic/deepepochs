@@ -29,7 +29,7 @@ class LossWrapper:
         Args:
             model_out:          模型预测输出
             batch_y:            标签
-            loss_adjust:        用于累积梯度训练时对反向传播时用的梯度进行调整，以使累积梯度训练结果与正常训练一致（参见例22、23）
+            loss_adjust:        取值为sub_batch_size与batch_size的比例，以使累积梯度训练结果与正常训练一致（参见例22、23）
             grad_accumulate:    值为True时不调用optimize和on_metric_callback（参见例22、23）
         """
         if self.stage == 'train':
@@ -44,18 +44,19 @@ class LossWrapper:
                 self.trainer.accelerator.backward(loss * loss_adjust)
             self.trainer.callbacks.trigger('after_backward', trainer=self.trainer, loss=loss)
 
+            # 优化、触发回调。累积梯度情况下需在累积结束后手动调用。
             if not grad_accumulate:
                 self.optimize()                                     # 更新参数
-                self.on_metric_callback(loss, model_out, batch_y)   # 触发指标计算回调
+                self.do_metric(loss, model_out, batch_y)   # 触发指标计算回调
         else:
             if self.do_loss:
                 loss = self.loss_fn(model_out, batch_y)
             else:
                 loss = None
-            self.on_metric_callback(loss, model_out, batch_y)       # 触发指标计算回调
+            self.do_metric(loss, model_out, batch_y)       # 触发指标计算回调
         return loss
 
-    def on_metric_callback(self, loss, model_out, batch_y):
+    def do_metric(self, loss, model_out, batch_y):
         """触发指标计算回调"""
         if loss is not None and hasattr(loss, 'detach'):
             loss = loss.detach().clone()

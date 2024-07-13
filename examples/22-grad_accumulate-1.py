@@ -56,6 +56,8 @@ class Trainer(TrainerBase):
 
         sub_batch_size = 16  # 子batch大小
         loss_adjust = sub_batch_size/batch_y.shape[0]
+
+        # ------ 梯度累积
         for sub_batch_x, sub_batch_y in zip(batches(batch_x, sub_batch_size), batches(batch_y, sub_batch_size)):
             # 手动将子batch数据放入device
             sub_batch_x, sub_batch_y = sub_batch_x.to(self.device), sub_batch_y.to(self.device)
@@ -66,10 +68,11 @@ class Trainer(TrainerBase):
             # 保存模型输出
             model_out.append(sub_model_out)
 
+        # ------ 优化及结果处理
         # 优化参数，并梯度清零
         self.loss.optimize()
         # 触发metric处理的callback，确保指标正确计算
-        self.loss.on_metric_callback(loss_value/batch_y.shape[0], concat(model_out), batch_y)
+        self.loss.do_metric(loss_value/batch_y.shape[0], concat(model_out), batch_y)
 
 
 trainer = Trainer(model, F.cross_entropy, opt, epochs=2, metrics=metrics,

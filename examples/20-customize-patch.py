@@ -6,6 +6,7 @@
 定制Patch需要继承deepepochs.PatchBase类，重写`forward`方法和`add`方法：
     - `forward()`：无参数，返回当前Patch的指标值
     - `add(obj)`：参数`obj`为另一个Patch对象，返回当前Patch对象和`obj`相加得到的新Patch对象
+    - `load(preds, targets)`：装载数据，参数为mini-batch的预测和标签
 """
 from deepepochs import Trainer, PatchBase, EpochTask, sum_dicts
 import torch
@@ -22,23 +23,28 @@ class HitsCountPatch(PatchBase):
     """
     用于对Hit@n进行计数的Patch
     """
-    def __init__(self, preds, targets, at=(1, 2), name=None):
+    def __init__(self, at=(1, 2), name=None):
         super().__init__(name)
         self.at = at
         self.hits_count = {f'@{v}': 0 for v in at}
+
+    def load(self, preds, targets):
         _, ids_sorted = preds.sort(dim=1, descending=True)
         tgts_np = targets.cpu().numpy()
-        for n in at:
+        for n in self.at:
             ids_n = ids_sorted[:,:n].cpu().detach().clone().numpy()
             hit = np.in1d(tgts_np, ids_n, assume_unique=True)
             self.hits_count[f'@{n}'] += hit.sum()
+        return self
 
     def forward(self):
         return self.hits_count
 
     def add(self, obj):
-        self.hits_count = sum_dicts([self.hits_count, obj.hits_count])
-        return self
+        # new_obj = HitsCountPatch(self.at, self.name)
+        new_obj = self
+        new_obj.hits_count = sum_dicts([self.hits_count, obj.hits_count])
+        return new_obj
 
 
 class MyTask(EpochTask):
@@ -52,7 +58,7 @@ class MyTask(EpochTask):
         self.loss(model_out, batch_y)
 
         results = {}
-        results['nhits'] = HitsCountPatch(model_out, batch_y)               # 在训练、验证和测试中使用自定义Patch
+        results['nhits'] = HitsCountPatch().load(model_out, batch_y)      # 在训练、验证和测试中使用自定义Patch
         return results
 
 

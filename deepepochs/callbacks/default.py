@@ -107,7 +107,9 @@ class DefaultCallback(Callback):
             model_out = trainer.accelerator.gather_for_metrics(model_out)
             batch_y = trainer.accelerator.gather_for_metrics(batch_y)
 
-        patch_dict = {} if loss is None else  {'loss': ValuePatch(loss, b_size)}
+        # 创建ValuePatch并装入数据
+        patch_dict = {} if loss is None else  {'loss': ValuePatch(b_size).load(loss)}
         for m in metrics:
-            patch_dict[m.__name__] = trainer.metric_patch(m, model_out, batch_y, batch_size=b_size)
+            # 创建Patch并装入数据
+            patch_dict[m.__name__] = trainer.metric_patch(metric=m, batch_size=b_size).load(model_out, batch_y)
         return patch_dict

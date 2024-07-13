@@ -69,7 +69,7 @@ class MyTask(EpochTask):
         self.loss(model_out, batch_y)
 
         # 记录指标值
-        results = {'m_': TensorPatch(metrics, model_out, batch_y)}
+        results = {'m_': TensorPatch(metrics).load(model_out, batch_y)}
         return results
 
 train_task = MyTask(train_dl)

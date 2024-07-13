@@ -64,18 +64,18 @@ def multi_metrics(preds, targets):
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 
 trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=2,
-                  metrics=[acc],                        # 1. 在训练、验证和测试中使用的指标
+                  metrics=[acc],                             # 1. 在训练、验证和测试中使用的指标
                   )
 
 progress = trainer.fit(train_dl, val_dl,
-                        metrics=[multi_metrics],            # 2. 在训练和验证中使用的指标
-                        train_metrics=[multi_metrics],      # 3. 仅在训练中使用的指标
-                        val_metrics=[multi_metrics],        # 4. 仅在验证中使用的指标
-                        # batch_size=32                     # 5. 特殊情况下需指定batch_size或者能计算batch_size的函数，用于准确计算损失和指标
-                                                            #    若为函数，则参数为(batch_x, batch_y)，返回batch_size大小
-                        batch_size= lambda x, y: x.shape[0]
+                        metrics=[multi_metrics],             # 2. 在训练和验证中使用的指标
+                        train_metrics=[multi_metrics],       # 3. 仅在训练中使用的指标
+                        val_metrics=[multi_metrics],         # 4. 仅在验证中使用的指标
+                        # batch_size=32                      # 5. 特殊情况下需指定batch_size或者能计算batch_size的函数，用于准确计算损失和指标
+                        batch_size= lambda x, y: x.shape[0]  #    若为函数，则参数为(batch_x, batch_y)，返回batch_size大小
                         )
+
 test_rst = trainer.test(test_dl,
-                        metrics=[recall],                   # 6. 仅在测试中使用的指标
-                        batch_size=32                       # 同5.
+                        metrics=[recall],                    # 6. 仅在测试中使用的指标
+                        batch_size=32                        # 同5.
                         )

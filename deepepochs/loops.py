@@ -161,6 +161,22 @@ class TensorTuple(tuple):
         return TensorTuple(t.int() if isinstance(t, torch.Tensor) or hasattr(t, 'int') else t for t in self)
 
 
+def clone_value(value):
+    """复制一份新的值，包括数值、Tensor或者它们组成的字典、列表或元组"""
+    if isinstance(value, (int, float)):
+        return value
+    elif isinstance(value, torch.Tensor):
+        return value.detach().clone()
+    elif isinstance(value, dict):
+        return {k: clone_value(v) for k, v in value.items()}
+    elif isinstance(value, TensorTuple):
+        return TensorTuple([clone_value(v) for v in value])
+    elif isinstance(value, (list, tuple)):
+        return [clone_value(v) for v in value]
+    else:
+        raise LoopException("Error in value clone!")
+
+
 def flatten_dict(d, parent_key='', sep='.'):
     """flatten a dict with dict as values"""
     items = []

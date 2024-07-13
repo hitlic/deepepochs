@@ -60,6 +60,7 @@ class TrainerBase:
             log_long  [bool]:                   指标输出为长格式（7位小数）还是短格式（4位小数）
             log_batch [bool]:                   训练过程中是否每个batch输出一次指标值
             log_tqdm  [bool]:                   是否使用tqdm显示进度
+            show_info [bool]:                   fit时是否显示模型信息
             auto_traindata_to_device:           是否自动将训练数据放入device，在定制step时可根据需要选择
             compile_model [bool]:               利用PyTorch 2.x对模型compile以提升速度（暂不支持mps、Windows [v2.1]）
         """
@@ -147,15 +148,16 @@ class TrainerBase:
             assert issubclass(metric_patch, PatchBase), 'metric_patch参数的取值为"mean"、"tensor"或"confusion"，或者PatchBase的子类'
             self.metric_patch = metric_patch
 
-        self.resume = resume  # 该参数会被CheckCallback使用
+        self.resume = resume                            # 该参数会被CheckCallback使用
 
         if running_id is None:
-            self.running_id = str(int(time.time()*100))  # 以当前timestamp为running_id
+            # 以当前timestamp为running_id
+            self.running_id = str(int(time.time()*100))
         else:
             self.running_id = str(running_id)
-        self.hyper_params = hyper_params  # 该参数会被LogCallback使用
+        self.hyper_params = hyper_params                # 该参数会被LogCallback使用
 
-        self.is_fit_run = False           # fit方法是否被调用
+        self.is_fit_run = False                         # fit方法是否被调用
 
     def _train_info(self):
         self.print('=' * 50)
@@ -275,17 +277,13 @@ class TrainerBase:
                 self.callbacks.trigger('after_epoch', trainer=self, train_tasks=train_tasks, val_tasks=val_tasks, train_metrics=train_metric_values, val_metrics=val_metric_values, epoch_idx=epoch_idx)
                 self.init_epoch = epoch_idx + 1
         except KeyboardInterrupt:
-            if self.main_process:
-                print('\nStop trainning manually!')
+            self.print('\nStop trainning manually!')
         except StopLoopException as e:
-            if self.main_process:
-                print('\n', e, sep='')
+            self.print('\n', e, sep='')
         except LoopException as e:
-            if self.main_process:
-                print('\t', e, sep='')
+            self.print('\t', e, sep='')
         except CallbackException as e:
-            if self.main_process:
-                print('\t', e, sep='')
+            self.print('\t', e, sep='')
 
         self.callbacks.trigger('after_fit', trainer=self)
         return {k: concat_dicts(v) for k, v in progress_metrics.items()}
@@ -319,8 +317,7 @@ class TrainerBase:
             tasks:       测试任务（EpochTask对象）列表；当需要在多个测试数据集上进行不同指标的测试时，将数据和指标封装为EpochTask
         """
         assert not (test_dl is None and tasks is None), '`Trainer.test`方法中，`train_dl`参数和`task`参数不能同时为None！'
-        if self.main_process:
-            print('-'*50)
+        self.print('-'*50)
         # 使用Trainer.__init__中定义的通用指标
         self.test_metrics = [m for m in listify(metrics) if m not in self.general_metrics] + self.general_metrics
 
@@ -367,6 +364,7 @@ class TrainerBase:
               或
             dict: 键为指标名，值为封装了数据和指标函数的PatchBase子类对象
         """
+        # self.model是对Trainer中model参数的封装，
         model_out = self.model(*batch_x)
         # self.loss是对Trainer中loss参数的封装，在训练中会自动调用opt.zero_grad、loss.backward、opt.step等方法
         self.loss(model_out, batch_y)
@@ -387,7 +385,7 @@ class TrainerBase:
               或
             dict: 键为指标名，值为封装了数据和指标函数的PatchBase子类对象
         """
-        # self.model是对Trainer中model参数的封装，
+        # self.model是对Trainer中model参数的封装
         model_out = self.model(*batch_x)
         # self.loss是对Trainer中loss参数的封装，在训练中会自动调用opt.zero_grad、loss.backward、opt.step等方法
         self.loss(model_out, batch_y)

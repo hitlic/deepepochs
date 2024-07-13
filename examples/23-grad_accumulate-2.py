@@ -68,13 +68,13 @@ class Trainer(TrainerBase):
                 sub_model_out = self.model(*sub_batch_x)
                 # 计算损失的过程中自动求梯度，令do_optimize=False禁止参数优化
                 loss_value += self.loss(sub_model_out, sub_batch_y, loss_adjust=loss_adjust, grad_accumulate=True) * sub_batch_y.shape[0]
-                # 优化参数
+                # 优化参数  -- Accelerate每次都需调用优化
                 self.loss.optimize()  # Accelerate的梯度累积要求每个sub-batch都优化
             # 保存模型输出
             model_out.append(sub_model_out)
 
         # 触发metric处理的callback，确保指标正确计算
-        self.loss.on_metric_callback(loss_value/batch_y.shape[0], concat(model_out), batch_y)
+        self.loss.do_metric(loss_value/batch_y.shape[0], concat(model_out), batch_y)
 
 
 def main():
