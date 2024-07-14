@@ -103,13 +103,17 @@ class TrainerBase:
             self.loss = LossWrapper(default_loss, self)
         else:
             self.loss = LossWrapper(loss, self)
+        self.optimize = self.loss.optimize     # 方便在定制的step方法中使用
+        self.do_metric = self.loss.do_metric   # 方便在定制的step方法中使用
 
         # 配置优化器
         if opt is None:
-            self.opt = Optimizer(Adam(model.parameters(), lr=0.001))
+            self.opt = Optimizers([Optimizer(Adam(model.parameters(), lr=0.001))])
         elif isinstance(opt, torch.optim.Optimizer):
-            self.opt = Optimizer(opt)
-        elif isinstance(opt, (Optimizer, Optimizers)):  # Optimizers是多个Optimizer的列表
+            self.opt = Optimizers([Optimizer(opt)])
+        elif isinstance(opt, Optimizer):
+            self.opt = Optimizers([opt])
+        elif isinstance(opt, Optimizers):  # Optimizers是多个Optimizer的列表
             self.opt = opt
         elif isinstance(opt, (list, tuple)):  # 多个优化器的情况
             opt_lst = [Optimizer(o) if isinstance(o, torch.optim.Optimizer) else o for o in opt]
@@ -207,8 +211,12 @@ class TrainerBase:
             val_tasks:      验证任务（EpochTask对象）列表；当需要在多个验证数据集上进行不同指标的验证时，将数据和指标封装为EpochTask
             epochs:         指定当前训练的迭代次数
         """
-        assert not (train_dl is None and train_tasks is None), '`Trainer.fit`方法中，`train_dl`参数和`train_tasks`参数只能有一个为None！'
-        assert not (train_dl is not None and train_tasks is not None), '`Trainer.fit`方法中，`train_dl`参数和`train_tasks`参数只能有一个不为None！'
+        # assert not (train_dl is None and train_tasks is None), '`Trainer.fit`方法中，`train_dl`参数和`train_tasks`参数只能有一个为None！'
+        # assert not (train_dl is not None and train_tasks is not None), '`Trainer.fit`方法中，`train_dl`参数和`train_tasks`参数只能有一个不为None！'
+        if train_dl is None and train_tasks is None:
+            raise LoopException('`Trainer.fit`方法中，`train_dl`参数和`train_tasks`参数只能有一个为None！')
+        if train_dl is not None and train_tasks is not None:
+            raise LoopException('`Trainer.fit`方法中，`train_dl`参数和`train_tasks`参数只能有一个不为None！')
 
         if epochs is not None:
             if not self.is_fit_run:

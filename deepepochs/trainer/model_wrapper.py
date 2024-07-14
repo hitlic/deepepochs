@@ -21,7 +21,7 @@ class ModelWrapper:
     def __call__(self, *args, **kwds):
         self.trainer.callbacks.trigger(f'before_{self.stage}_forward', trainer=self.trainer)
         model_out = self.model(*args, **kwds)
-        self.trainer.callbacks.trigger(f'after_{self.stage}_forward', trainer=self.trainer, model_out=model_out)
+        self.trainer.callbacks.trigger(f'after_{self.stage}_forward', trainer=self.trainer, model_out=model_out.detach())
         return model_out
 
     def train(self):

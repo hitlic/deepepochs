@@ -71,10 +71,10 @@ class LogCallback(Callback):
     def lr_dict(self, trainer):
         current_lr = trainer.opt.get_current_lr()
         if isinstance(current_lr, (list, tuple)):
-            lr_dict = {f'learning_rate_{i}': lr  for i, lr in enumerate(current_lr)}
+            _lr_dict = {f'learning_rate_{i}': lr  for i, lr in enumerate(current_lr)}
         else:
-            lr_dict = {'learning_rate': current_lr}
-        return lr_dict
+            _lr_dict = {'learning_rate': current_lr}
+        return _lr_dict
 
     def on_before_train_epoch(self, trainer, task):
         if trainer.main_process:

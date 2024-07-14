@@ -18,6 +18,5 @@ class GradClipCallback(Callback):
             self.clip = partial(clip_grad_norm_, norm_type=norm_type)
         super().__init__()
 
-    def on_after_optimize(self, trainer):
+    def on_after_optimize(self, trainer, optimize_index):
         self.clip(trainer.model.parameters(), self.max_value)
-        return super().on_after_optimize(trainer)

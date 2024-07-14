@@ -64,15 +64,15 @@ class Trainer(TrainerBase):
             # 模型预测
             sub_model_out = self.model(*sub_batch_x)
             # 计算损失的过程中自动求梯度，令do_optimize=False禁止参数优化
-            loss_value += self.loss(sub_model_out, sub_batch_y, loss_adjust=loss_adjust, grad_accumulate=True) * sub_batch_y.shape[0]
+            loss_value += self.loss(sub_model_out, sub_batch_y, loss_adjust=loss_adjust, do_optimize=False, do_metric=False) * sub_batch_y.shape[0]
             # 保存模型输出
             model_out.append(sub_model_out)
 
         # ------ 优化及结果处理
         # 优化参数，并梯度清零
-        self.loss.optimize()
+        self.optimize()
         # 触发metric处理的callback，确保指标正确计算
-        self.loss.do_metric(loss_value/batch_y.shape[0], concat(model_out), batch_y)
+        self.do_metric(loss_value/batch_y.shape[0], concat(model_out), batch_y)
 
 
 trainer = Trainer(model, F.cross_entropy, opt, epochs=2, metrics=metrics,

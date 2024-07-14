@@ -36,10 +36,10 @@ def acc(preds, targets):
     return dm.accuracy(preds=preds, targets=targets)
 
 logger = LogCallback(
-    log_dir='./logs',               # 日志保存位置，默认为 ./logs
-    log_graph=True,                 # 是否保存模型结构图，默认为False
-    # example_input=None            # 保存模型结构图时的输入样例，默认以第一个训练batch_x作为样例输入
-    # example_input=train_ds[0][0]    # 指定样例输入
+    log_dir='./logs',                # 日志保存位置，默认为 ./logs
+    log_graph=True,                  # 是否保存模型结构图，默认为False
+    # example_input=None             # 保存模型结构图时的输入样例，默认以第一个训练batch_x作为样例输入
+    # example_input=train_ds[0][0]   # 指定样例输入
     )  # tensorboard日志callback
 
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)

@@ -25,7 +25,7 @@ import abc
 from typing import Literal
 import torch
 from .metrics import confusion_matrix, accuracy, precision, recall, fbeta
-from .loops import keyset, clone_value
+from .loops import keyset
 from copy import deepcopy
 
 
@@ -50,7 +50,8 @@ def run_patch_dicts(patch_dicts):
     """
     if len(patch_dicts) == 0:
         return None
-    return {patch_name(k, patch_dicts[0][k]): sum(dic[k] for dic in patch_dicts if dic)() for k in keyset(patch_dicts)}
+
+    return {patch_name(k, patch_dicts[0][k]): sum(d[k] for d in patch_dicts if d)() for k in keyset(patch_dicts)}
 
 
 class PatchBase(abc.ABC):
@@ -64,6 +65,7 @@ class PatchBase(abc.ABC):
         """
         super().__init__()
         self.name = name
+        self.reusable = False  # 当前对象是否可重复利用. 用于实现随意相加而不改变原始Patch数据, 见__add方法.
 
     def __add__(self, obj):
         return self.__add(obj)
@@ -94,12 +96,29 @@ class PatchBase(abc.ABC):
         """
 
     def __add(self, obj):
-        if obj == 0:
-            # 使用sum求和时，第一步与0相加，此时复制出一份新的对象一直使用，不影响原始数据
-            #    如是TensorPatch则返回自身，因为它只是对数据的引用列表，不涉及大量的数据变动
-            return deepcopy(self) if not isinstance(self, TensorPatch) else self
+        if obj == 0:                                        # 与 0 相加的情况
+            if isinstance(self, TensorPatch):
+                # TensorPatch在相加中会产生新对象，因而不必复制
+                return self
+            else:
+                new_obj = deepcopy(self)
+                new_obj.reusable = True
+                return new_obj
+
         assert isinstance(obj, self.__class__), '相加的两个Patch的类型不一致！'
-        return self.add(obj)
+
+        # --- 下面的代码确保 add 方法一定由可重用对象调用
+        if not self.reusable and not obj.reusable:          # 用 + 运算符相加的情况
+            if isinstance(self, TensorPatch):
+                new_obj = self
+            else:
+                new_obj = deepcopy(self)
+                new_obj.reusable = True
+            return new_obj.add(obj)
+        elif self.reusable:                                 # 使用sum或者使用循环左加的情况
+            return self.add(obj)
+        else:
+            return obj.add(self)                            # 使用循环右加的情况
 
 
 class ValuePatch(PatchBase):
@@ -145,26 +164,19 @@ class ValuePatch(PatchBase):
     def add(self, obj):
         return add_patch_value(self, obj)
 
-    def clone(self):
-        """本方法已废弃"""
-        new_obj = self.__class__(self.batch_size, self.name)
-        new_obj.batch_value = clone_value(self.batch_value)
-        return new_obj
 
-
-def add_patch_value(self_obj, obj):
-    # new_obj = self_obj.clone()
-    new_obj = self_obj                  # 由于93行使用deepcopy复制了一个新的对象，因此没必要每次新建对象
-    if isinstance(new_obj.batch_value, dict):
-        assert isinstance(obj.batch_value, dict) and len(new_obj.batch_value) == len(obj.batch_value), '相加的两个Patch值不匹配！'
-        keys = new_obj.batch_value.keys()
+def add_patch_value(reuse_obj, obj):
+    # 参见110行，reuse_obj一定是可重用的对象
+    if isinstance(reuse_obj.batch_value, dict):
+        assert isinstance(obj.batch_value, dict) and len(reuse_obj.batch_value) == len(obj.batch_value), '相加的两个Patch值不匹配！'
+        keys = reuse_obj.batch_value.keys()
         keys_ = obj.batch_value.keys()
         assert len(set(keys).difference(set(keys_))) == 0, '相加的两个Patch值（字典）的key不一致！'
-        new_obj.batch_value = {k: new_obj.batch_value[k]+obj.batch_value[k] for k in keys}
+        reuse_obj.batch_value = {k: reuse_obj.batch_value[k]+obj.batch_value[k] for k in keys}
     else:
-        new_obj.batch_value += obj.batch_value
-    new_obj.batch_size += obj.batch_size
-    return new_obj
+        reuse_obj.batch_value += obj.batch_value
+    reuse_obj.batch_size += obj.batch_size
+    return reuse_obj
 
 
 class MeanPatch(PatchBase):
@@ -204,12 +216,6 @@ class MeanPatch(PatchBase):
     def add(self, obj):
         return add_patch_value(self, obj)
 
-    def clone(self):
-        """本方法已废弃"""
-        new_obj = self.__class__(self.metric, self.batch_size, self.name)
-        new_obj.batch_value = clone_value(self.batch_value)
-        return new_obj
-
 
 class TensorPatch(PatchBase):
     def __init__(self, metric, batch_size=None, name=None):
@@ -236,6 +242,7 @@ class TensorPatch(PatchBase):
         """
         super().__init__(name)
         assert callable(metric), '指标`metric`应当是一个可调用对象！'
+        self.reusable = True
         self.metric = metric
         self.batch_size = batch_size
 
@@ -307,14 +314,10 @@ class ConfusionPatch(PatchBase):
         return self.metric(self.confusion_matrix)
 
     def add(self, obj):
+        # 根据110行，self一定是可重用对象
         assert self.confusion_matrix.shape == obj.confusion_matrix.shape, '相加的两个Patch中数据的类别数量不相等！'
-
-        # new_obj = self.__class__(self.metric, self.batch_size, self.name)
-        new_obj = self                                      # 由于93行使用deepcopy复制了一个新的对象，因此没必要每次新建对象
-
-        new_obj.num_classes = self.num_classes
-        new_obj.confusion_matrix = self.confusion_matrix + obj.confusion_matrix
-        return new_obj
+        self.confusion_matrix = self.confusion_matrix + obj.confusion_matrix
+        return self
 
 
 class ConfusionMetrics(PatchBase):
@@ -364,12 +367,9 @@ class ConfusionMetrics(PatchBase):
         assert set(self.metrics) == set(obj.metrics), '相加的两个Patch的`metrics`不一致!'
         assert self.average == obj.average, '相加的两个Patch的`average`不一致!'
 
-        # new_obj = self.__class__(self.metrics, self.average, self.beta, self.name)
-        new_obj = self                                  # 由于93行使用deepcopy复制了一个新的对象，因此没必要每次新建对象
-
-        new_obj.num_classes = self.num_classes
-        new_obj.confusion_matrix = self.confusion_matrix + obj.confusion_matrix
-        return new_obj
+        # 根据110行，self一定是可重用对象
+        self.confusion_matrix = self.confusion_matrix + obj.confusion_matrix
+        return self
 
     def accuracy(self):
         return accuracy(conf_mat=self.confusion_matrix)

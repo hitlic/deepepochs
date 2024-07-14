@@ -1,7 +1,6 @@
 from matplotlib import pyplot as plt
 from .callback import Callback, CallbackException
 from ..loops import StopLoopException
-from ..optimizer import Optimizers
 
 
 class LRFindCallback(Callback):
@@ -21,12 +20,12 @@ class LRFindCallback(Callback):
         self.opt_id = opt_id
 
     def on_before_train_batch(self, trainer, batch_x, batch_y, batch_idx):
-        if isinstance(trainer.opt, Optimizers):
+        if len(trainer.opt) > 1:
             if self.opt_id is None:
                 raise CallbackException("训练中使用了多个优化器，参数opt_id未指定！")
             opt = trainer.opt[self.opt_id]
         else:
-            opt = trainer.opt
+            opt = trainer.opt[0]
         pos = (batch_idx + 1)/self.max_batch
         lr = self.min_lr * (self.max_lr/self.min_lr) ** pos
         for pg in opt.param_groups:

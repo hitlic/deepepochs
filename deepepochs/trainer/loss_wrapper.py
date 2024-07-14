@@ -18,48 +18,56 @@ class LossWrapper:
         self.do_loss = None
         self.task = None
 
-    def optimize(self):
-        self.trainer.callbacks.trigger('before_optimize', trainer=self.trainer)
-        self.trainer.opt.step()
-        self.trainer.opt.zero_grad()
-        self.trainer.callbacks.trigger('after_optimize', trainer=self.trainer)
-
-    def __call__(self, model_out, batch_y, loss_adjust=1.0, grad_accumulate=False):
+    def optimize(self, optimize_index=None):
         """
         Args:
-            model_out:          模型预测输出
-            batch_y:            标签
-            loss_adjust:        取值为sub_batch_size与batch_size的比例，以使累积梯度训练结果与正常训练一致（参见例22、23）
-            grad_accumulate:    值为True时不调用optimize和on_metric_callback（参见例22、23）
+            optimize_index: 优化器索引，当使用多个优化器时仅调用由optimize_index指定的优化器；None表示调用全部优化器.
+        """
+        self.trainer.callbacks.trigger('before_optimize', trainer=self.trainer, optimize_index=optimize_index)
+        if optimize_index is None:
+            self.trainer.opt.step()
+            self.trainer.opt.zero_grad()
+        else:
+            self.trainer.opt[optimize_index].step()
+            self.trainer.opt[optimize_index].zero_grad()
+        self.trainer.callbacks.trigger('after_optimize', trainer=self.trainer, optimize_index=optimize_index)
+
+    def __call__(self, model_out, batch_y, loss_adjust=1.0, do_optimize=True, do_metric=True):
+        """
+        Args:
+            model_out:      模型预测输出
+            batch_y:        标签
+            loss_adjust:    取值为sub_batch_size与batch_size的比例，以使累积梯度训练结果与正常训练一致（参见例22、23）
+            do_optimize:    是否调用优化器优化模型
+            do_metric:      是否触发处理metric的回调
         """
         if self.stage == 'train':
             # 计算损失
             loss = self.loss_fn(model_out, batch_y)
-
             # backward
-            self.trainer.callbacks.trigger('before_backward', trainer=self.trainer, loss=loss)
+            self.trainer.callbacks.trigger('before_backward', trainer=self.trainer, loss=loss.detach())
             if self.trainer.accelerator is None:
                 (loss * loss_adjust).backward()
             else:       # accelerate的backward
                 self.trainer.accelerator.backward(loss * loss_adjust)
-            self.trainer.callbacks.trigger('after_backward', trainer=self.trainer, loss=loss)
+            self.trainer.callbacks.trigger('after_backward', trainer=self.trainer, loss=loss.detach())
 
-            # 优化、触发回调。累积梯度情况下需在累积结束后手动调用。
-            if not grad_accumulate:
+            if do_optimize:
                 self.optimize()                                     # 更新参数
-                self.do_metric(loss, model_out, batch_y)   # 触发指标计算回调
         else:
             if self.do_loss:
                 loss = self.loss_fn(model_out, batch_y)
             else:
                 loss = None
-            self.do_metric(loss, model_out, batch_y)       # 触发指标计算回调
+
+        if do_metric:
+            self.do_metric(loss, model_out, batch_y)   # 触发指标计算回调
         return loss
 
-    def do_metric(self, loss, model_out, batch_y):
+    def do_metric(self, loss=None, model_out=None, batch_y=None):
         """触发指标计算回调"""
         if loss is not None and hasattr(loss, 'detach'):
-            loss = loss.detach().clone()
+            loss = loss.detach()
         if model_out is not None and hasattr(model_out, 'detach'):
-            model_out = model_out.detach().clone()
+            model_out = model_out.detach()
         self.trainer.callbacks.trigger(f'{self.stage}_metrics', trainer=self.trainer, loss=loss, model_out=model_out, batch_y=batch_y, task=self.task)

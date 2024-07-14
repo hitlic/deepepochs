@@ -137,18 +137,20 @@ class Callback:
             loss:     loss
         """
 
-    def on_before_optimize(self, trainer):
+    def on_before_optimize(self, trainer, optimize_index):
         """
-        *Accelerate累积梯度训练时会重复多次
+        *Accelerate累积梯度训练或使用多个优化器时会重复多次
         Args:
-            trainer:  Trainer
+            trainer:        Trainer
+            optimize_index: 使用多个优化器时，优化器的索引
         """
 
-    def on_after_optimize(self, trainer):
+    def on_after_optimize(self, trainer, optimize_index):
         """
-        *Accelerate累积梯度训练时会重复多次
+        *Accelerate累积梯度训练或使用多个优化器时会重复多次
         Args:
             trainer:  Trainer
+            optimize_index: 使用多个优化器时，优化器的索引
         """
 
     def on_train_metrics(self, trainer, loss, model_out, batch_y, task):

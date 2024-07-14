@@ -33,7 +33,8 @@ model = nn.Sequential(
 )
 
 # 定义多个优化器，实际使用中每个优化器应针对不同的模型组成部分
-# 注意：大多数情况下不需要多个优化器，而是为模型参数分组，每个组使用不同的学习率
+# **注意：1. 大多数情况下不需要多个优化器，而是为模型参数分组，每个组使用不同的学习率；
+#        2. 多个优化器通常配合定制step方法，在step方法中手动调用optimize方法（该方法可指定优化器索引）
 opt1 = torch.optim.Adam(model.parameters(), lr=2e-4)
 opt2 = torch.optim.Adam(model.parameters(), lr=2e-4)
 

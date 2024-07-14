@@ -41,7 +41,7 @@ class HitsCountPatch(PatchBase):
         return self.hits_count
 
     def add(self, obj):
-        # new_obj = HitsCountPatch(self.at, self.name)
+        # new_obj = HitsCountPatch(self.at, self.name)  # 可不必创建新对象，以提升运行效率，若要创建新对象
         new_obj = self
         new_obj.hits_count = sum_dicts([self.hits_count, obj.hits_count])
         return new_obj
