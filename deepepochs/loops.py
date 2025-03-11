@@ -45,15 +45,20 @@ def rename(newname):
     return decorator
 
 
-def batch_size(data):
+def batch_size(data, batch_dim=0):
+    """
+    Args:
+        data:
+        batch_dim: batch所在的维度，默认为batch_first
+    """
     if isinstance(data, (list, tuple)):
         return batch_size(data[0])
     elif isinstance(data, torch.Tensor):
-        return 1 if data.numel()==1 else data.shape[0]
+        return 1 if data.numel()==1 else data.shape[batch_dim]
     elif hasattr(data, '__len__'):
         return len(data)
     else:
-        return 1
+        return 1  # 数据不是Tensor也没有__len__方法，可能Graph之类的特殊数据
 
 
 def listify(obj):

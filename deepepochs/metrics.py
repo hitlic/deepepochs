@@ -85,6 +85,8 @@ def __check_params(preds, targets, average, conf_mat):
     assert average in ['micro', 'macro', 'weighted'], "`average`取值为'micro', 'macro'或'weighted'"
     if conf_mat is None:
         assert preds is not None and targets is not None, "请提供`conf_mat`或(`preds`,`targets`)"
+    else:
+        assert preds is None and targets is None, "已提供`conf_mat`参数，(`preds`,`targets`)必须为`None`"
 
 
 def get_class_num(preds, targets):
