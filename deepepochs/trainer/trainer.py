@@ -318,7 +318,13 @@ class TrainerBase:
         if to_device:
             batch_x, batch_y = batch_x.to(self.device), batch_y.to(self.device)
 
-        return batch_x, batch_y[0] if (isinstance(batch_y, (list, tuple)) and len(batch_y)==1) else batch_y
+        if isinstance(batch_x, (list, tuple)) and len(batch_x)==1:
+            batch_x = batch_x[0]
+
+        if isinstance(batch_y, (list, tuple)) and len(batch_y)==1:
+            batch_y = batch_y[0]
+
+        return batch_x, batch_y
 
     def test(self, test_dl: DataLoader=None, metrics:List[Callable]=None, do_loss:bool=True, batch_size:Union[int, Callable]=None, tasks:List[EpochTask]=None)-> dict:
         """
@@ -381,9 +387,11 @@ class TrainerBase:
         """
         # self.model是对Trainer中model参数的封装
         if isinstance(batch_x, dict):
-            model_out = self.model(batch_x)
-        else:
+            model_out = self.model(**batch_x)
+        elif isinstance(batch_x, (list, tuple)):
             model_out = self.model(*batch_x)
+        else:
+            model_out = self.model(batch_x)
         # self.loss是对Trainer中loss参数的封装，在训练中会自动调用opt.zero_grad、loss.backward、opt.step等方法
         self.loss(model_out, batch_y)
 
@@ -405,9 +413,11 @@ class TrainerBase:
         """
         # self.model是对Trainer中model参数的封装
         if isinstance(batch_x, dict):
-            model_out = self.model(batch_x)
-        else:
+            model_out = self.model(**batch_x)
+        elif isinstance(batch_x, (list, tuple)):
             model_out = self.model(*batch_x)
+        else:
+            model_out = self.model(batch_x)
         # self.loss是对Trainer中loss参数的封装，在训练中会自动调用opt.zero_grad、loss.backward、opt.step等方法
         self.loss(model_out, batch_y)
 

@@ -1,6 +1,7 @@
 """
 @author: liuchen
 """
+import torch
 
 class LossWrapper:
     """
@@ -44,6 +45,7 @@ class LossWrapper:
         if self.stage == 'train':
             # 计算损失
             loss = self.loss_fn(model_out, batch_y)
+            assert isinstance(loss, torch.Tensor) and loss.ndim == 0, 'The loss function must reture a scalar value of loss (损失函数必须返回标量)!'
             # backward
             self.trainer.callbacks.trigger('before_backward', trainer=self.trainer, loss=loss.detach())
             if self.trainer.accelerator is None:

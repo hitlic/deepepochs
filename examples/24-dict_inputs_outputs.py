@@ -17,11 +17,13 @@ mnist_full = MNIST(data_dir, train=True, transform=transform, download=True)
 train_ds, val_ds = random_split(mnist_full, [55000, 5000])
 test_ds = MNIST(data_dir, train=False, transform=transform, download=True)
 
+
 def collate_fn(batch):
     x, y = zip(*batch)
     x = torch.stack(x)
     y = torch.tensor(y)
-    return {'x': x , 'y': y, 'z': 1}
+    return {'x': x, 'y': y}
+
 
 train_dl = DataLoader(train_ds, batch_size=32, collate_fn=collate_fn)
 val_dl = DataLoader(val_ds, batch_size=32, collate_fn=collate_fn)
@@ -29,25 +31,22 @@ test_dl = DataLoader(test_ds, batch_size=32, collate_fn=collate_fn)
 
 
 # 2. --- model
-channels, width, height = (1, 28, 28)
-smodel = nn.Sequential(
-    nn.Flatten(),
-    nn.Linear(channels * width * height, 64),
-    nn.ReLU(),
-    nn.Dropout(0.1),
-    nn.Linear(64, 64),
-    nn.ReLU(),
-    nn.Dropout(0.1),
-    nn.Linear(64, 10)
-)
-
 class Model(nn.Module):
     def __init__(self):
         super().__init__()
-        self.model = smodel
-    def forward(self, inputs):
-        x = inputs['x']
-        y = inputs['y']
+        channels, width, height = (1, 28, 28)
+        self.model = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(channels * width * height, 64),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(64, 10)
+        )
+
+    def forward(self, x, y):
         preds = self.model(x)
         loss = F.cross_entropy(preds, y)
         return {'loss': loss}
