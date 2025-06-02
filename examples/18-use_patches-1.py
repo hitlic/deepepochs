@@ -44,9 +44,9 @@ def multi_metrics(conf_mat):
     当Trainer的metric_patch参数为'confusion'时，指标函数的输入为混淆矩阵。    # ***
     """
     return {
-        'acc': dm.accuracy(conf_mat),
-        'p': dm.precision(conf_mat, average='macro'),
-        'r': dm.recall(conf_mat, average='macro')
+        'acc': dm.accuracy(conf_mat=conf_mat),
+        'p': dm.precision(conf_mat=conf_mat, average='macro'),
+        'r': dm.recall(conf_mat=conf_mat, average='macro')
         }
 
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)

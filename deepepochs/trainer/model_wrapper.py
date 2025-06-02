@@ -22,7 +22,10 @@ class ModelWrapper:
 
     def __call__(self, *args, **kwds):
         self.trainer.callbacks.trigger(f'before_{self.stage}_forward', trainer=self.trainer)
-        model_out = self.model(*args, **kwds)
+        if isinstance(args, dict):
+            model_out = self.model(args, **kwds)
+        else:
+            model_out = self.model(*args, **kwds)
         if isinstance(model_out, (list, tuple, dict)):
             model_out = compose_data(model_out)
         self.trainer.callbacks.trigger(f'after_{self.stage}_forward', trainer=self.trainer, model_out=model_out.detach())

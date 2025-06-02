@@ -89,6 +89,7 @@ trainer.test(test_dl)                                     # 测试
 |21|分布式训练、混合精度训练|[examples/21-accelerate.py](examples/21-accelerate.py)|
 |22|定制`train_step`实现累积梯度训练|[examples/22-grad_accumulate-1.py](examples/22-grad_accumulate-1.py)|
 |23|定制`train_step`，利用Accelerate实现累积梯度训练|[examples/23-grad_accumulate-2.py](examples/23-grad_accumulate-2.py)|
+|24|输入、输出为字典的模型| [examples/24-dict_inputs_outputs.py](examples/24-dict_inputs_outputs.py) |
 
 
 ### 定制

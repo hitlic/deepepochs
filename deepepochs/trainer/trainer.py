@@ -303,9 +303,16 @@ class TrainerBase:
             batch_data: Dataloader的返回的批量数据
             to_device: True表示将数据放入设备，False表示不放入。累积梯度情况下，数据在划分更小的批量后才放进GPU。
         """
-        batch_x, batch_y = batch_data[:-1], batch_data[-1:]
-        batch_x = [compose_data(x) if isinstance(x, (list, tuple)) else x for x in batch_x]
-        batch_y = [compose_data(y) if isinstance(y, (list, tuple)) else y for y in batch_y]
+        if isinstance(batch_data, dict):
+            batch_x, batch_y = batch_data, [None]
+        else:
+            if self.loss.loss_fn is default_loss:
+                batch_x, batch_y = batch_data[:], [None]
+            else:
+                batch_x, batch_y = batch_data[:-1], batch_data[-1:]
+            batch_x = [compose_data(x) if isinstance(x, (list, tuple)) else x for x in batch_x]
+            batch_y = [compose_data(y) if isinstance(y, (list, tuple)) else y for y in batch_y]
+
         batch_x, batch_y = compose_data(batch_x), compose_data(batch_y)
 
         if to_device:
@@ -372,8 +379,11 @@ class TrainerBase:
               或
             dict: 键为指标名，值为封装了数据和指标函数的PatchBase子类对象
         """
-        # self.model是对Trainer中model参数的封装，
-        model_out = self.model(*batch_x)
+        # self.model是对Trainer中model参数的封装
+        if isinstance(batch_x, dict):
+            model_out = self.model(batch_x)
+        else:
+            model_out = self.model(*batch_x)
         # self.loss是对Trainer中loss参数的封装，在训练中会自动调用opt.zero_grad、loss.backward、opt.step等方法
         self.loss(model_out, batch_y)
 
@@ -394,7 +404,10 @@ class TrainerBase:
             dict: 键为指标名，值为封装了数据和指标函数的PatchBase子类对象
         """
         # self.model是对Trainer中model参数的封装
-        model_out = self.model(*batch_x)
+        if isinstance(batch_x, dict):
+            model_out = self.model(batch_x)
+        else:
+            model_out = self.model(*batch_x)
         # self.loss是对Trainer中loss参数的封装，在训练中会自动调用opt.zero_grad、loss.backward、opt.step等方法
         self.loss(model_out, batch_y)
 

@@ -129,6 +129,54 @@ def concat(datas):
         return torch.concat(datas, dim=0) if datas[0].dim() > 1 else torch.concat(datas)
 
 
+def _to(inputs, device, **kwargs):
+    if isinstance(inputs, torch.Tensor) or hasattr(inputs, 'to'):
+        return inputs.to(device, **kwargs)
+    return inputs
+
+
+def _cpu(inputs):
+    if isinstance(inputs, torch.Tensor) or hasattr(inputs, 'cpu'):
+        return inputs.cpu()
+    return inputs
+
+
+def _clone(inputs):
+    if isinstance(inputs, torch.Tensor) or hasattr(inputs, 'clone'):
+        return inputs.clone()
+    return inputs
+
+
+def _detach(inputs):
+    if isinstance(inputs, torch.Tensor) or hasattr(inputs, 'detach'):
+        return inputs.detach()
+    return inputs
+
+
+def _data(inputs):
+    if isinstance(inputs, torch.Tensor) or hasattr(inputs, 'data'):
+        return inputs.data
+    return inputs
+
+
+def _float(inputs):
+    if isinstance(inputs, torch.Tensor) or hasattr(inputs, 'float'):
+        return inputs.float()
+    return inputs
+
+
+def _long(inputs):
+    if isinstance(inputs, torch.Tensor) or hasattr(inputs, 'long'):
+        return inputs.long()
+    return inputs
+
+
+def _int(inputs):
+    if isinstance(inputs, torch.Tensor) or hasattr(inputs, 'int'):
+        return inputs.int()
+    return inputs
+
+
 class TensorTuple(tuple):
     """
     tuple of tensors
@@ -141,29 +189,44 @@ class TensorTuple(tuple):
             return torch.device(type='cpu')
 
     def to(self, device, **kwargs):
-        return TensorTuple(t.to(device, **kwargs) if isinstance(t, torch.Tensor) or hasattr(t, 'to') else t for t in self)
+        # return TensorTuple(t.to(device, **kwargs) if isinstance(t, torch.Tensor) or hasattr(t, 'to') else t for t in self)
+        return TensorTuple(_to(t, device, **kwargs) for t in self)
 
     def cpu(self):
-        return TensorTuple(t.cpu() if isinstance(t, torch.Tensor) or hasattr(t, 'cpu') else t for t in self)
+        # return TensorTuple(t.cpu() if isinstance(t, torch.Tensor) or hasattr(t, 'cpu') else t for t in self)
+        return TensorTuple(_cpu(t) for t in self)
 
     def clone(self):
-        return TensorTuple(t.clone() if isinstance(t, torch.Tensor) or hasattr(t, 'clone') else t for t in self)
+        # return TensorTuple(t.clone() if isinstance(t, torch.Tensor) or hasattr(t, 'clone') else t for t in self)
+        return TensorTuple(_clone(t) for t in self)
 
     def detach(self):
-        return TensorTuple(t.detach() if isinstance(t, torch.Tensor) or hasattr(t, 'detach') else t for t in self)
+        # return TensorTuple(t.detach() if isinstance(t, torch.Tensor) or hasattr(t, 'detach') else t for t in self)
+        return TensorTuple(_detach(t) for t in self)
 
     @property
     def data(self):
-        return TensorTuple(t.data if isinstance(t, torch.Tensor) or  hasattr(t, 'data') else t for t in self)
+        # return TensorTuple(t.data if isinstance(t, torch.Tensor) or  hasattr(t, 'data') else t for t in self)
+        return TensorTuple(_data(t) for t in self)
 
     def float(self):
-        return TensorTuple(t.float() if isinstance(t, torch.Tensor) or hasattr(t, 'float') else t for t in self)
+        # return TensorTuple(t.float() if isinstance(t, torch.Tensor) or hasattr(t, 'float') else t for t in self)
+        return TensorTuple(_float(t) for t in self)
 
     def long(self):
-        return TensorTuple(t.long() if isinstance(t, torch.Tensor) or hasattr(t, 'long') else t for t in self)
+        # return TensorTuple(t.long() if isinstance(t, torch.Tensor) or hasattr(t, 'long') else t for t in self)
+        return TensorTuple(_long(t) for t in self)
 
     def int(self):
-        return TensorTuple(t.int() if isinstance(t, torch.Tensor) or hasattr(t, 'int') else t for t in self)
+        # return TensorTuple(t.int() if isinstance(t, torch.Tensor) or hasattr(t, 'int') else t for t in self)
+        return TensorTuple(_int(t) for t in self)
+
+
+def tensor_tuple(inputs):
+    if isinstance(inputs, (list, tuple)):
+        return TensorTuple(inputs)
+    else:
+        return inputs
 
 
 class TensorDict(dict):
@@ -178,30 +241,30 @@ class TensorDict(dict):
         return torch.device(type='cpu')
 
     def to(self, device, **kwargs):
-        return {k: TensorDict(v).to(device, **kwargs) if isinstance(v, dict) else TensorTuple(v).to(device, **kwargs)
+        return {k: TensorDict(v).to(device, **kwargs) if isinstance(v, dict) else _to(tensor_tuple(v),device, **kwargs)
                 for k, v in self.items()}
 
     def cpu(self):
-        return {k: TensorDict(v).cpu() if isinstance(v, dict) else TensorTuple(v).cpu() for k, v in self.items()}
+        return {k: TensorDict(v).cpu() if isinstance(v, dict) else _cpu(tensor_tuple(v)) for k, v in self.items()}
 
     def clone(self):
-        return {k: TensorDict(v).clone() if isinstance(v, dict) else TensorTuple(v).clone() for k, v in self.items()}
+        return {k: TensorDict(v).clone() if isinstance(v, dict) else _clone(tensor_tuple(v)) for k, v in self.items()}
 
     def detach(self):
-        return {k: TensorDict(v).detach() if isinstance(v, dict) else TensorTuple(v).detach() for k, v in self.items()}
+        return {k: TensorDict(v).detach() if isinstance(v, dict) else _detach(tensor_tuple(v)) for k, v in self.items()}
 
     @property
     def data(self):
-        return {k: TensorDict(v).data if isinstance(v, dict) else TensorTuple(v).data for k, v in self.items()}
+        return {k: TensorDict(v).data if isinstance(v, dict) else _data(tensor_tuple(v)) for k, v in self.items()}
 
     def float(self):
-        return {k: TensorDict(v).float() if isinstance(v, dict) else TensorTuple(v).float() for k, v in self.items()}
+        return {k: TensorDict(v).float() if isinstance(v, dict) else _float(tensor_tuple(v)) for k, v in self.items()}
 
     def long(self):
-        return {k: TensorDict(v).long() if isinstance(v, dict) else TensorTuple(v).long() for k, v in self.items()}
+        return {k: TensorDict(v).long() if isinstance(v, dict) else _long(tensor_tuple(v)) for k, v in self.items()}
 
     def int(self):
-        return {k: TensorDict(v).int() if isinstance(v, dict) else TensorTuple(v).int() for k, v in self.items()}
+        return {k: TensorDict(v).int() if isinstance(v, dict) else _int(tensor_tuple(v)) for k, v in self.items()}
 
 
 def compose_data(data):
