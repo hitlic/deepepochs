@@ -57,7 +57,7 @@ logger = LogCallback()
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 
 trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=6,
-                  callbacks=[checker, logger], metrics=[acc], long_output=False)
+                  callbacks=[checker, logger], metrics=[acc], log_long=False)
 
 # 应用示例1：
 progress = trainer.fit(train_dl, val_dl, metrics=[multi_metrics], val_freq=2)

@@ -166,6 +166,53 @@ class TensorTuple(tuple):
         return TensorTuple(t.int() if isinstance(t, torch.Tensor) or hasattr(t, 'int') else t for t in self)
 
 
+class TensorDict(dict):
+    """
+    dict of tensors
+    """
+    @property
+    def device(self):
+        for v in self.values():
+            if hasattr(v, 'device'):
+                return v.device
+        return torch.device(type='cpu')
+
+    def to(self, device, **kwargs):
+        return {k: TensorDict(v).to(device, **kwargs) if isinstance(v, dict) else TensorTuple(v).to(device, **kwargs)
+                for k, v in self.items()}
+
+    def cpu(self):
+        return {k: TensorDict(v).cpu() if isinstance(v, dict) else TensorTuple(v).cpu() for k, v in self.items()}
+
+    def clone(self):
+        return {k: TensorDict(v).clone() if isinstance(v, dict) else TensorTuple(v).clone() for k, v in self.items()}
+
+    def detach(self):
+        return {k: TensorDict(v).detach() if isinstance(v, dict) else TensorTuple(v).detach() for k, v in self.items()}
+
+    @property
+    def data(self):
+        return {k: TensorDict(v).data if isinstance(v, dict) else TensorTuple(v).data for k, v in self.items()}
+
+    def float(self):
+        return {k: TensorDict(v).float() if isinstance(v, dict) else TensorTuple(v).float() for k, v in self.items()}
+
+    def long(self):
+        return {k: TensorDict(v).long() if isinstance(v, dict) else TensorTuple(v).long() for k, v in self.items()}
+
+    def int(self):
+        return {k: TensorDict(v).int() if isinstance(v, dict) else TensorTuple(v).int() for k, v in self.items()}
+
+
+def compose_data(data):
+    if isinstance(data, (dict)):
+        return TensorDict(data)
+    elif isinstance(data, (list, tuple)):
+        return TensorTuple(data)
+    else:
+        return data
+
+
 def clone_value(value):
     """复制一份新的值，包括数值、Tensor或者它们组成的字典、列表或元组"""
     if isinstance(value, (int, float)):
@@ -337,6 +384,8 @@ def check_path(path, create=True):
 
 def default_loss(preds, targets):
     """默认损失函数，直接返回模型预测结果，适用于模型直接返回损失值的情况。"""
+    if isinstance(preds, dict) and 'loss' in preds:
+        return preds['loss']
     return preds
 
 

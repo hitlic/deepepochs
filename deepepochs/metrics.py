@@ -86,7 +86,7 @@ def __check_params(preds, targets, average, conf_mat):
     if conf_mat is None:
         assert preds is not None and targets is not None, "请提供`conf_mat`或(`preds`,`targets`)"
     else:
-        assert preds is None and targets is None, "已提供`conf_mat`参数，(`preds`,`targets`)必须为`None`"
+        assert preds is None and targets is None, "`conf_mat`不为空！请检查参数!"
 
 
 def get_class_num(preds, targets):
@@ -100,7 +100,7 @@ def get_class_num(preds, targets):
     return num_classes
 
 
-def accuracy(conf_mat=None, preds=None, targets=None):
+def accuracy(preds=None, targets=None, conf_mat=None):
     """
     基于conf_mat或(preds, targets)计算Accuracy。conf_mat和(preds, targets)不能同时为None。
     Args:
@@ -118,7 +118,7 @@ def accuracy(conf_mat=None, preds=None, targets=None):
     return sum(conf_mat[i, i] for i in range(num_class))/conf_mat.sum()
 
 
-def recall(conf_mat=None, preds=None, targets=None, average='micro'):
+def recall(preds=None, targets=None, conf_mat=None, average='micro'):
     """
     基于conf_mat或(preds, targets)计算Recall。conf_mat和(preds, targets)不能同时为None。
     Args:
@@ -146,7 +146,7 @@ def recall(conf_mat=None, preds=None, targets=None, average='micro'):
         return v
 
 
-def precision(conf_mat=None, preds=None, targets=None, average='micro'):
+def precision(preds=None, targets=None, conf_mat=None, average='micro'):
     """
     基于conf_mat或(preds, targets)计算Precision。conf_mat和(preds, targets)不能同时为None。
     Args:
@@ -173,7 +173,7 @@ def precision(conf_mat=None, preds=None, targets=None, average='micro'):
         return sum(p*w for p, w in zip(ps, weights))
 
 
-def fbeta(conf_mat=None, preds=None, targets=None, beta=1, average='micro'):
+def fbeta(preds=None, targets=None, conf_mat=None, beta=1, average='micro'):
     """
     基于conf_mat或(preds, targets)计算F-beta。conf_mat和(preds, targets)不能同时为None。
     Args:
@@ -201,7 +201,7 @@ def fbeta(conf_mat=None, preds=None, targets=None, beta=1, average='micro'):
         return v
 
 
-def f1(conf_mat=None, preds=None, targets=None, average='micro'):
+def f1(preds=None, targets=None, conf_mat=None, average='micro'):
     """
     基于conf_mat或(preds, targets)计算F1。conf_mat和(preds, targets)不能同时为None。
     Args:
@@ -210,4 +210,4 @@ def f1(conf_mat=None, preds=None, targets=None, average='micro'):
         targets:  标签
         average:  平均方式
     """
-    return fbeta(conf_mat, preds, targets, 1, average=average)
+    return fbeta(preds, targets, conf_mat, 1, average=average)

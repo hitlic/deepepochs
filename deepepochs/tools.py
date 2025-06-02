@@ -94,6 +94,7 @@ class SeriesPlots:
         assert self.check_shape(values, self.plot_names), f'数据形状不匹配！应当形如：{str(self.plot_names)[1:-1]}'
         self.x.append(len(self.x) + 1)
 
+        ax = None
         for i, (ys, vs, axs_lns) in enumerate(zip(self.ys, values, self.graphs)):
             if isinstance(vs, (list, tuple)):
                 self.max_ys[i] = max(self.max_ys[i], max(vs))  # pylint: disable=W3301

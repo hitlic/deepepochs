@@ -9,7 +9,7 @@ import torch
 from torch.optim import Adam
 from torch.utils.data import DataLoader
 from accelerate import Accelerator
-from ..loops import StopLoopException, LoopException, TensorTuple, default_loss, concat_dicts, to_numpy, listify
+from ..loops import StopLoopException, LoopException, default_loss, concat_dicts, to_numpy, listify, compose_data
 from ..optimizer import Optimizer, Optimizers
 from ..patches import PatchBase, MeanPatch, TensorPatch, ConfusionPatch
 from ..callbacks import CallbackPool, DefaultCallback, CallbackException
@@ -304,14 +304,14 @@ class TrainerBase:
             to_device: True表示将数据放入设备，False表示不放入。累积梯度情况下，数据在划分更小的批量后才放进GPU。
         """
         batch_x, batch_y = batch_data[:-1], batch_data[-1:]
-        batch_x = [TensorTuple(x) if isinstance(x, (list, tuple)) else x for x in batch_x]
-        batch_y = [TensorTuple(y) if isinstance(y, (list, tuple)) else y for y in batch_y]
-        batch_x, batch_y = TensorTuple(batch_x), TensorTuple(batch_y)
+        batch_x = [compose_data(x) if isinstance(x, (list, tuple)) else x for x in batch_x]
+        batch_y = [compose_data(y) if isinstance(y, (list, tuple)) else y for y in batch_y]
+        batch_x, batch_y = compose_data(batch_x), compose_data(batch_y)
 
         if to_device:
             batch_x, batch_y = batch_x.to(self.device), batch_y.to(self.device)
 
-        return batch_x, batch_y[0] if len(batch_y)==1 else batch_y
+        return batch_x, batch_y[0] if (isinstance(batch_y, (list, tuple)) and len(batch_y)==1) else batch_y
 
     def test(self, test_dl: DataLoader=None, metrics:List[Callable]=None, do_loss:bool=True, batch_size:Union[int, Callable]=None, tasks:List[EpochTask]=None)-> dict:
         """
