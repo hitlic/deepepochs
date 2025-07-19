@@ -361,7 +361,7 @@ def log_epoch(stages_metrics, epoch_idx, epochs, epoch_width=0, round_to=4, tqdm
         print_out(log_info, end='\n', tqdm_iter=tqdm_iter)  # 清除光标至行末字符
     elif test_metrics is not None:
         test_info = info(test_metrics, round_to)
-        log_info = f'E {epoch_idx}/{epochs}  TEST> {test_info}'
+        log_info = f'E {epoch_idx}/{epochs}  TEST>  {test_info}'
         __update_max_len(log_info)
         print_out(log_info, end='\n', tqdm_iter=tqdm_iter)  # 清除光标至行末字符
     else:

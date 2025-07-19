@@ -88,6 +88,7 @@ class TrainerBase:
             self.accelerator = self.device
             self.device = self.accelerator.device
             self.main_process = self.accelerator.is_main_process  # 是否主进程
+            self.auto_traindata_to_device = False # 分布式训练下，数据放入设备由Accelerate处理
         else:
             assert str(self.device).split(':', maxsplit=1)[0] in device_types, f'Pytorch不支持的{self.device}设备！\nPytorch支持的设备有：{device_types}'
             self.accelerator = None
@@ -173,7 +174,7 @@ class TrainerBase:
                 self.print(f"{'device:':<12} Accelerate-{self.device}")
             else:   # 分布式训练-类型-进程数量
                 self.print(f"{'device:':<12} Accelerate-{self.accelerator.distributed_type}-{self.accelerator.num_processes}")
-                self.print(' '*12, "**Note: Training metrics are only calculated in the main process!")
+                self.print(' '*12, "**Note**: Training metrics are only calculated in the main process!")
         self.print(f"{'running ID:':<12} {self.running_id}")
         param_size = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         self.print(f"{'parameters:':<12} {param_size}")
@@ -338,7 +339,7 @@ class TrainerBase:
             tasks:       测试任务（EpochTask对象）列表；当需要在多个测试数据集上进行不同指标的测试时，将数据和指标封装为EpochTask
         """
         assert not (test_dl is None and tasks is None), '`Trainer.test`方法中，`train_dl`参数和`task`参数不能同时为None！'
-        self.print('-'*50)
+        # self.print('-'*50)
         # 使用Trainer.__init__中定义的通用指标
         self.test_metrics = [m for m in listify(metrics) if m not in self.general_metrics] + self.general_metrics
 
@@ -420,6 +421,15 @@ class TrainerBase:
             model_out = self.model(batch_x)
         # self.loss是对Trainer中loss参数的封装，在训练中会自动调用opt.zero_grad、loss.backward、opt.step等方法
         self.loss(model_out, batch_y)
+
+    def load_checkpoint(self, ckpt_path):
+        """
+        从Checkpoint文件中加载模型参数
+        """
+        from ..callbacks.check import load_state  # pylint: disable=C0415
+        print(f'loading checkpoint from {ckpt_path} ...')
+        load_state(self, ckpt_path)
+        return self
 
 
 class Trainer(TrainerBase):

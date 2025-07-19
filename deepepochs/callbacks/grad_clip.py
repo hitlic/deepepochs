@@ -12,11 +12,20 @@ class GradClipCallback(Callback):
         """
         assert norm_type is None or norm_type > 0, 'The value of norm_type is None or a positive integer.'
         self.max_value = max_value
-        if norm_type is None:
-            self.clip = clip_grad_value_
-        else:
-            self.clip = partial(clip_grad_norm_, norm_type=norm_type)
+        self.norm_type = norm_type
+        self.clip = None
         super().__init__()
 
+    def prepare_clip(self, trainer):
+        if self.clip is not None:
+            return
+
+        if self.norm_type is None:
+            self.clip = clip_grad_value_ if trainer.accelerator is None else trainer.accelerator.clip_grad_value_
+        else:
+            clip_fn = clip_grad_norm_ if trainer.accelerator is None else trainer.accelerator.clip_grad_norm_
+            self.clip = partial(clip_fn, norm_type=self.norm_type)
+
     def on_after_optimize(self, trainer, optimize_index):
+        self.prepare_clip(trainer)
         self.clip(trainer.model.parameters(), self.max_value)

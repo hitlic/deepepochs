@@ -47,12 +47,12 @@ class LossWrapper:
             loss = self.loss_fn(model_out, batch_y)
             assert isinstance(loss, torch.Tensor) and loss.ndim == 0, 'The loss function must reture a scalar value of loss (损失函数必须返回标量)!'
             # backward
-            self.trainer.callbacks.trigger('before_backward', trainer=self.trainer, loss=loss.detach())
+            self.trainer.callbacks.trigger('before_backward', trainer=self.trainer, loss=loss.detach().clone())
             if self.trainer.accelerator is None:
                 (loss * loss_adjust).backward()
             else:       # accelerate的backward
                 self.trainer.accelerator.backward(loss * loss_adjust)
-            self.trainer.callbacks.trigger('after_backward', trainer=self.trainer, loss=loss.detach())
+            self.trainer.callbacks.trigger('after_backward', trainer=self.trainer, loss=loss.detach().clone())
 
             if do_optimize:
                 self.optimize()                                     # 更新参数
@@ -69,7 +69,7 @@ class LossWrapper:
     def do_metric(self, loss=None, model_out=None, batch_y=None):
         """触发指标计算回调"""
         if loss is not None and hasattr(loss, 'detach'):
-            loss = loss.detach()
+            loss = loss.detach().clone()
         if model_out is not None and hasattr(model_out, 'detach'):
-            model_out = model_out.detach()
+            model_out = model_out.detach().clone()
         self.trainer.callbacks.trigger(f'{self.stage}_metrics', trainer=self.trainer, loss=loss, model_out=model_out, batch_y=batch_y, task=self.task)

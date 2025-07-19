@@ -1,5 +1,5 @@
 """
-基本应用
+模型的输入和输出是字典类型的示例，与Hugging Face Transformers的方式兼容。
 """
 import torch
 from torch import nn

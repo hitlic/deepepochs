@@ -61,7 +61,7 @@ class Trainer(TrainerBase):
         loss_adjust = sub_batch_size/batch_y.shape[0]
         for sub_batch_x, sub_batch_y in zip(batches(batch_x, sub_batch_size), batches(batch_y, sub_batch_size)):
             # 手动将子batch数据放入device
-            sub_batch_x, sub_batch_y = sub_batch_x.to(self.device), sub_batch_y.to(self.device)
+            # sub_batch_x, sub_batch_y = sub_batch_x.to(self.device), sub_batch_y.to(self.device)
 
             with self.accelerator.accumulate(self.model.model):
                 # 模型预测
