@@ -4,11 +4,11 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torchvision.datasets import MNIST
-from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
-from deepepochs import Trainer
+from torchvision import transforms
+from torchvision.datasets import MNIST
 
+from deepepochs import Trainer
 
 # 1. --- datasets
 data_dir = './datasets'

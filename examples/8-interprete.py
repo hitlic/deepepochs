@@ -4,12 +4,11 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torchvision.datasets import MNIST
-from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
-from deepepochs import Trainer
-from deepepochs import InterpreteCallback
+from torchvision import transforms
+from torchvision.datasets import MNIST
 
+from deepepochs import InterpreteCallback, Trainer
 
 # datasets
 data_dir = './datasets'
@@ -48,8 +47,11 @@ interpreter = InterpreteCallback(
 trainer = Trainer(model, F.cross_entropy, opt, epochs=5,
                   callbacks=[interpreter]                 # 启用interpreter
                   )
-trainer.fit(train_dl, val_dl)                             # 训练、验证
-trainer.test(test_dl)                                     # 测试
+try:
+    trainer.fit(train_dl, val_dl)                         # 训练、验证
+    trainer.test(test_dl)                                 # 测试
+finally:
+    trainer.close()
 
 # interpreter.top_samples()                               # 返回top k个数据及相关信息
 interpreter.run_tensorboard()

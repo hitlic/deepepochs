@@ -1,13 +1,15 @@
 """
 使用ConfusionPatch及相应的模型性能评价指标
 """
-from deepepochs import Trainer, rename, metrics as dm, set_seed
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torchvision.datasets import MNIST
-from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
+from torchvision import transforms
+from torchvision.datasets import MNIST
+
+from deepepochs import Trainer, rename, set_seed
+from deepepochs import metrics as dm
 
 set_seed(1)
 

@@ -1,0 +1,61 @@
+"""
+@author: liuchen
+"""
+from ..loops import compose_data
+
+
+class ModelWrapper:
+    """
+    用于实现回调：
+        on_before_train_forward    on_after_train_forward
+        on_before_val_forward      on_after_val_forward
+        on_before_test_forward     on_after_test_forward
+    """
+    def __init__(self, model, trainer):
+        # self.model = torch.compile(model)
+        self.model = model
+        self.trainer = trainer
+        self.stage = None
+
+    def __getattr__(self, name):
+        return getattr(self.model, name)
+
+    def __call__(self, *args, **kwds):
+        self.trainer.callbacks.trigger(f'before_{self.stage}_forward', trainer=self.trainer)
+        model = self.model if self.stage == 'train' else self.trainer.distributed.unwrap_model(self.model)
+        with self.trainer.autocast():
+            model_out = model(*args, **kwds)
+        if isinstance(model_out, (list, tuple, dict)):
+            model_out = compose_data(model_out)
+        self.trainer.callbacks.trigger(f'after_{self.stage}_forward', trainer=self.trainer, model_out=model_out.detach().clone())
+        return model_out
+
+    def train(self):
+        self.model.train()
+
+    def eval(self):
+        self.model.eval()
+
+    def to(self, device):
+        self.model = self.model.to(device)
+        return self
+
+    def cpu(self):
+        self.model = self.model.cpu()
+        return self
+
+    def cuda(self):
+        self.model = self.model.cuda()
+        return self
+
+    def parameters(self):
+        return self.model.parameters()
+
+    def modules(self):
+        return self.model.modules()
+
+    def state_dict(self):
+        return self.trainer.distributed.unwrap_serialization_model(self.model).state_dict()
+
+    def load_state_dict(self, state_dict):
+        self.trainer.distributed.unwrap_serialization_model(self.model).load_state_dict(state_dict)

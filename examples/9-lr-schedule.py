@@ -4,11 +4,11 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torchvision.datasets import MNIST
-from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
-from deepepochs import Trainer, Optimizer, LogCallback
+from torchvision import transforms
+from torchvision.datasets import MNIST
 
+from deepepochs import LogCallback, Optimizer, Trainer
 
 data_dir = './datasets'
 transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
@@ -45,7 +45,10 @@ opt = Optimizer(
 
 loger = LogCallback()
 trainer = Trainer(model, F.cross_entropy, opt, epochs=epoch_num, callbacks=[loger])
-trainer.fit(train_dl, val_dl)
-trainer.test(test_dl)
+try:
+    trainer.fit(train_dl, val_dl)
+    trainer.test(test_dl)
+finally:
+    trainer.close()
 
 loger.run_tensorboard()

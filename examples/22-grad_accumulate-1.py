@@ -1,13 +1,17 @@
 """
 通过TrainerBase定制train_step，实现累积梯度训练。
 """
-from deepepochs import TrainerBase, rename, metrics as mm, batches, concat, set_seed
+from contextlib import nullcontext
+
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torchvision.datasets import MNIST
-from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
+from torchvision import transforms
+from torchvision.datasets import MNIST
+
+from deepepochs import TrainerBase, batches, concat, rename, set_seed
+from deepepochs import metrics as mm
 
 set_seed(1.0)
 
@@ -49,22 +53,23 @@ class Trainer(TrainerBase):
     def train_step(self, batch_x, batch_y, **step_args):
         """
         定制train_step，实现累积梯度训练。
-        注意：若使用accelerate，则要配合accelerate的累积梯度训练修改代码。
+        将一个DataLoader batch拆成子batch，在全部子batch反向传播后更新一次参数。
         """
         model_out = []      # 保存模型输出
         loss_value = 0.0    # 保存训练损失
 
         sub_batch_size = 16  # 子batch大小
-        loss_adjust = sub_batch_size/batch_y.shape[0]
 
         # ------ 梯度累积
-        for sub_batch_x, sub_batch_y in zip(batches(batch_x, sub_batch_size), batches(batch_y, sub_batch_size)):
+        for sub_idx, (sub_batch_x, sub_batch_y) in enumerate(zip(batches(batch_x, sub_batch_size), batches(batch_y, sub_batch_size))):
             # 手动将子batch数据放入device
             sub_batch_x, sub_batch_y = sub_batch_x.to(self.device), sub_batch_y.to(self.device)
-            # 模型预测
-            sub_model_out = self.model(*sub_batch_x)
-            # 计算损失的过程中自动求梯度，令do_optimize=False禁止参数优化
-            loss_value += self.loss(sub_model_out, sub_batch_y, loss_adjust=loss_adjust, do_optimize=False, do_metric=False) * sub_batch_y.shape[0]
+            loss_adjust = sub_batch_y.shape[0] / batch_y.shape[0]
+            is_last = (sub_idx + 1) * sub_batch_size >= batch_y.shape[0]
+            # 分布式训练中，仅在最后一个子batch同步梯度。
+            with nullcontext() if is_last else self.no_sync():
+                sub_model_out = self.model(sub_batch_x)
+                loss_value += self.loss(sub_model_out, sub_batch_y, loss_adjust=loss_adjust, do_optimize=False, do_metric=False) * sub_batch_y.shape[0]
             # 保存模型输出
             model_out.append(sub_model_out)
 
@@ -72,11 +77,11 @@ class Trainer(TrainerBase):
         # 优化参数，并梯度清零
         self.optimize()
         # 触发metric处理的callback，确保指标正确计算
-        self.do_metric(loss_value/batch_y.shape[0], concat(model_out), batch_y)
+        self.do_metric(loss_value/batch_y.shape[0], concat(model_out), batch_y.to(self.device))
 
 
 trainer = Trainer(model, F.cross_entropy, opt, epochs=2, metrics=metrics,
                   auto_traindata_to_device=False,       # 禁止在训练时自动将数据放入device
-                  device='mps')
+                  device='cuda' if torch.cuda.is_available() else 'cpu')
 trainer.fit(train_dl, val_dl)                           # 训练、验证
 trainer.test(test_dl, do_loss=False)                    # 测试

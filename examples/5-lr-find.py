@@ -4,10 +4,11 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torchvision.datasets import MNIST
-from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
-from deepepochs import Trainer, LRFindCallback
+from torchvision import transforms
+from torchvision.datasets import MNIST
+
+from deepepochs import LRFindCallback, Trainer
 
 data_dir = './datasets'
 transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])

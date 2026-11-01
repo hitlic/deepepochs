@@ -1,13 +1,15 @@
 """
 在训练、验证、测试中使用多个dataloader
 """
-from deepepochs import Trainer, EpochTask, metrics as dm
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torchvision.datasets import MNIST
-from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
+from torchvision import transforms
+from torchvision.datasets import MNIST
+
+from deepepochs import EpochTask, Trainer
+from deepepochs import metrics as dm
 
 data_dir = './datasets'
 transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
@@ -58,7 +60,7 @@ train_tasks = [
 val_tasks = [EpochTask(val_dl, metrics=[r]), EpochTask(val_dl, metrics=[acc])]
 test_tasks = [EpochTask(test_dl, metrics=[acc, r]), EpochTask(test_dl, metrics=[p])]
 
-# 3. train_tasks参数可以与train_dl参数共同使用，val_tasks也可以用val_dl共同使用
+# 3. train_dl与train_tasks二选一；val_tasks可以与val_dl共同使用
 # 4. 实际上，在fit方法会将train_dl和val_dl封装为EpochTask
 trainer.fit(train_tasks=train_tasks, val_tasks=val_tasks)
 # 5. 同样，tasks参数也可以与test_dl参数共同使用

@@ -6,12 +6,14 @@
     pip install dgl -f https://data.dgl.ai/wheels/repo.html
 '''
 from functools import partial
+
+import dgl.data
 import torch
+from dgl.nn import GraphConv
 from torch import nn
 from torch.nn import functional as F
-import dgl.data
-from dgl.nn import GraphConv
 from torch.utils.data import DataLoader
+
 from deepepochs import Trainer
 
 

@@ -3,14 +3,15 @@
 
 在定制的Trainer中，train_step和evaluate_step返回了Patch字典。
 """
-from deepepochs import TrainerBase, TensorPatch, metrics as mm
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torchvision.datasets import MNIST
-from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
+from torchvision import transforms
+from torchvision.datasets import MNIST
 
+from deepepochs import TensorPatch, TrainerBase
+from deepepochs import metrics as mm
 
 data_dir = './datasets'
 transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
@@ -61,7 +62,7 @@ class Trainer(TrainerBase):
               或
             dict: 键为指标名，值为封装了数据和指标函数的PatchBase子类对象
         """
-        model_out = self.model(*batch_x)
+        model_out = self.model(batch_x)
         self.loss(model_out, batch_y)
 
         # 记录指标值
@@ -79,7 +80,7 @@ class Trainer(TrainerBase):
               或
             dict: 键为指标名，值为封装了数据和指标函数的PatchBase子类对象
         """
-        model_out = self.model(*batch_x)
+        model_out = self.model(batch_x)
         self.loss(model_out, batch_y)
 
         # 记录指标值

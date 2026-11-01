@@ -1,14 +1,15 @@
 """
 利用Tensorboad记录训练过程
 """
-from deepepochs import Trainer, LogCallback, metrics as dm
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torchvision.datasets import MNIST
-from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
+from torchvision import transforms
+from torchvision.datasets import MNIST
 
+from deepepochs import LogCallback, Trainer
+from deepepochs import metrics as dm
 
 data_dir = './datasets'
 transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
@@ -44,6 +45,9 @@ logger = LogCallback(
 
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=2, callbacks=[logger])
-progress = trainer.fit(train_dl, val_dl, metrics=[acc])
+try:
+    progress = trainer.fit(train_dl, val_dl, metrics=[acc])
+finally:
+    trainer.close()
 
 logger.run_tensorboard()            # 启动tensorboard，在GRAPHS中查看模型结构图

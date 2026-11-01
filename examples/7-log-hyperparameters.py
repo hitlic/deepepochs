@@ -1,15 +1,17 @@
 """
 利用tensorboard记录与可视化超参数
 """
-from deepepochs import Trainer, CheckCallback, rename, LogCallback, metrics as dm
+from itertools import product
+
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torchvision.datasets import MNIST
-from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
-from itertools import product
+from torchvision import transforms
+from torchvision.datasets import MNIST
 
+from deepepochs import CheckCallback, LogCallback, Trainer, rename
+from deepepochs import metrics as dm
 
 data_dir = './datasets'
 transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
@@ -47,7 +49,7 @@ for lr, dim, dropout in product(lr_s, dim_s, dropout_s):
     )
     checker = CheckCallback('loss', on_stage='val', mode='min', patience=2)
     logger = LogCallback()
-    opt = torch.optim.Adam(model.parameters(), lr=2e-4)
+    opt = torch.optim.Adam(model.parameters(), lr=lr)
 
     trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=5,
                     callbacks=[checker, logger],
@@ -59,7 +61,10 @@ for lr, dim, dropout in product(lr_s, dim_s, dropout_s):
                         }
                     )
 
-    progress = trainer.fit(train_dl, val_dl)
-    test_rst = trainer.test(test_dl)                        # 超参数和测试指标值会在测试之后自动写入日志
+    try:
+        progress = trainer.fit(train_dl, val_dl)
+        test_rst = trainer.test(test_dl)                    # 超参数和测试指标值会在测试之后自动写入日志
+    finally:
+        trainer.close()
 
 logger.run_tensorboard()                                    # 启动tensorboard，在HPARAMS中查看

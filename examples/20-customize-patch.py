@@ -8,14 +8,14 @@
     - `add(obj)`：参数`obj`为另一个Patch对象，返回当前Patch对象和`obj`相加得到的新Patch对象
     - `load(preds, targets)`：装载数据，参数为mini-batch的预测和标签
 """
-from deepepochs import Trainer, PatchBase, EpochTask, sum_dicts
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torchvision.datasets import MNIST
-from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
-import numpy as np
+from torchvision import transforms
+from torchvision.datasets import MNIST
+
+from deepepochs import EpochTask, PatchBase, Trainer, sum_dicts
 
 
 # 自定义Patch
@@ -30,11 +30,9 @@ class HitsCountPatch(PatchBase):
 
     def load(self, preds, targets):
         _, ids_sorted = preds.sort(dim=1, descending=True)
-        tgts_np = targets.cpu().numpy()
         for n in self.at:
-            ids_n = ids_sorted[:,:n].cpu().detach().clone().numpy()
-            hit = np.in1d(tgts_np, ids_n, assume_unique=True)
-            self.hits_count[f'@{n}'] += hit.sum()
+            hits = (ids_sorted[:, :n] == targets[:, None]).any(dim=1)
+            self.hits_count[f'@{n}'] += hits.sum().item()
         return self
 
     def forward(self):
@@ -53,7 +51,7 @@ class MyTask(EpochTask):
         在训练、验证和测试中使用了同一step方法。
         注意：本方法返回一个字典，键为指标名，值为封装了数据和指标函数的PatchBase子类对象。
         """
-        model_out = self.model(*batch_x)
+        model_out = self.model(batch_x)
 
         self.loss(model_out, batch_y)
 

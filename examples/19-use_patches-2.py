@@ -18,17 +18,18 @@
     - forward方法计算指标
     - 利用sum对多个对象求和得到新对象，也可用 + 运算符
 5. 定制Patch
-    - 继承MetricPatch，实现load方法、forward方法和add方法，参数要求参见 2.
+    - 继承PatchBase，实现load方法、forward方法和add方法，参数要求参见 2.
 """
 
-from deepepochs import Trainer, ValuePatch, TensorPatch, MeanPatch, ConfusionMetrics, EpochTask, metrics as mm
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torchvision.datasets import MNIST
-from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
+from torchvision import transforms
+from torchvision.datasets import MNIST
 
+from deepepochs import ConfusionMetrics, EpochTask, MeanPatch, TensorPatch, Trainer, ValuePatch
+from deepepochs import metrics as mm
 
 data_dir = './datasets'
 transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
@@ -61,7 +62,7 @@ def acc(preds, targets):
 
 class MyTask(EpochTask):
     def step(self, batch_x, batch_y, **step_args):
-        model_out = self.model(*batch_x)
+        model_out = self.model(batch_x)
         loss = self.loss(model_out, batch_y)
 
         batch_size = len(model_out)

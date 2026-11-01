@@ -1,14 +1,15 @@
 """
 Checkpoint和EarlyStop
 """
-from deepepochs import Trainer, CheckCallback, metrics as dm
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torchvision.datasets import MNIST
-from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
+from torchvision import transforms
+from torchvision.datasets import MNIST
 
+from deepepochs import CheckCallback, Trainer
+from deepepochs import metrics as dm
 
 # datasets
 data_dir = './datasets'

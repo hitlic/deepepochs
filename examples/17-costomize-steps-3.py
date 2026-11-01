@@ -5,14 +5,15 @@
     3. `val_step`、`test_step`优先级高于`evaluate_step`方法
     4. `EpochTask`中的`*step`方法优先级高于`Trainer`中的`*step`方法
 """
-from deepepochs import Trainer, TensorPatch, EpochTask, metrics as mm
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torchvision.datasets import MNIST
-from torchvision import transforms
 from torch.utils.data import DataLoader, random_split
+from torchvision import transforms
+from torchvision.datasets import MNIST
 
+from deepepochs import EpochTask, TensorPatch, Trainer
+from deepepochs import metrics as mm
 
 data_dir = './datasets'
 transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
@@ -65,7 +66,7 @@ class MyTask(EpochTask):
               或
             dict: 键为指标名，值为封装了数据和指标函数的PatchBase子类对象
         """
-        model_out = self.model(*batch_x)
+        model_out = self.model(batch_x)
         self.loss(model_out, batch_y)
 
         # 记录指标值
