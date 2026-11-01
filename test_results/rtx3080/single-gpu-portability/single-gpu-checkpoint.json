@@ -1,0 +1,48 @@
+{
+  "source_checkpoint": "/tmp/deepepochs-multigpu.629eWE/reports/evaluation-4-fp32/checkpoints/multiple/checkpoint-2.ckpt",
+  "relocated_checkpoint": "/tmp/deepepochs-multigpu.629eWE/reports/single-gpu-portability/relocated/checkpoint-2.ckpt",
+  "source_world_size": 4,
+  "world_size": 1,
+  "fixture": "multigpu_evaluation.FixedLogits",
+  "cases": [
+    {
+      "case": "distributed_checkpoint_restored_in_one_process",
+      "status": "PASS",
+      "source_world_size": 4,
+      "world_size": 1,
+      "device": "cuda:0",
+      "epoch": 3,
+      "learning_rate": 0.02,
+      "marker": 3.0
+    },
+    {
+      "case": "relocated_monitor_ownership",
+      "status": "PASS",
+      "selected_marker": 1.0,
+      "current_marker": 3.0,
+      "monitor_paths": [
+        "/tmp/deepepochs-multigpu.629eWE/reports/single-gpu-portability/relocated/checkpoint-1.ckpt",
+        "/tmp/deepepochs-multigpu.629eWE/reports/single-gpu-portability/relocated/checkpoint-2.ckpt"
+      ]
+    },
+    {
+      "case": "one_gpu_training_continued",
+      "status": "PASS",
+      "epoch": 4,
+      "optimizer_steps": 2,
+      "global_batch_size": 8,
+      "learning_rate": 0.01,
+      "marker": 4.0,
+      "checkpoint": "/tmp/deepepochs-multigpu.629eWE/reports/single-gpu-portability/continued/single-gpu/checkpoint-2.ckpt"
+    },
+    {
+      "case": "testing_preserves_continued_training_state",
+      "status": "PASS",
+      "selected_checkpoint": "/tmp/deepepochs-multigpu.629eWE/reports/single-gpu-portability/continued/single-gpu/checkpoint-1.ckpt",
+      "selected_marker": 4.0,
+      "restored_marker": 4.0,
+      "epoch": 4,
+      "learning_rate": 0.01
+    }
+  ]
+}

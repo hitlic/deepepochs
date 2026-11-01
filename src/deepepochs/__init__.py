@@ -6,8 +6,8 @@ DeepEpochs is a simple Pytorch deep learning model training tool(see https://git
 __version__ = '0.7.2'
 
 from .callbacks import *
-from .loops import *
 from .launcher import launch
+from .loops import *
 from .optimizer import Optimizer, Optimizers
 from .patches import ConfusionMetrics, ConfusionPatch, MeanPatch, PatchBase, TensorPatch, ValuePatch
 from .tools import *

@@ -1,0 +1,98 @@
+{
+  "environment": {
+    "date": "2026-11-01",
+    "version": "0.7.1",
+    "python": "3.11.8 (main, Feb 26 2024, 21:39:34) [GCC 11.2.0]",
+    "torch": "2.2.2+cu121",
+    "cuda": "12.1",
+    "nccl": [
+      2,
+      19,
+      3
+    ],
+    "visible_devices": "0,1,2",
+    "devices": [
+      "NVIDIA GeForce RTX 3080",
+      "NVIDIA GeForce RTX 3080",
+      "NVIDIA GeForce RTX 3080"
+    ],
+    "runtime_modules_match_wheel": 22
+  },
+  "runs": [
+    {
+      "job": "training-fp32",
+      "status": "PASS",
+      "seconds": 11.76
+    },
+    {
+      "job": "evaluation-fp32",
+      "status": "PASS",
+      "seconds": 11.87
+    },
+    {
+      "job": "launch-fp32",
+      "status": "PASS",
+      "seconds": 13.67
+    },
+    {
+      "job": "training-fp16",
+      "status": "PASS",
+      "seconds": 11.68
+    },
+    {
+      "job": "evaluation-fp16",
+      "status": "PASS",
+      "seconds": 11.83
+    },
+    {
+      "job": "launch-fp16",
+      "status": "PASS",
+      "seconds": 13.98
+    },
+    {
+      "job": "training-bf16",
+      "status": "PASS",
+      "seconds": 11.82
+    },
+    {
+      "job": "evaluation-bf16",
+      "status": "PASS",
+      "seconds": 11.62
+    },
+    {
+      "job": "launch-bf16",
+      "status": "PASS",
+      "seconds": 13.76
+    },
+    {
+      "job": "readme",
+      "status": "PASS",
+      "seconds": 13.51
+    },
+    {
+      "job": "example-21",
+      "status": "PASS",
+      "seconds": 48.19
+    },
+    {
+      "job": "example-23",
+      "status": "PASS",
+      "seconds": 18.92
+    }
+  ],
+  "status": "PASS",
+  "world_size": 3,
+  "training_checks": 34,
+  "evaluation_checks": 21,
+  "interrupted_retry_checks": 6,
+  "automatic_launch_precisions": [
+    "fp32",
+    "fp16",
+    "bf16"
+  ],
+  "readme_epochs": 5,
+  "example_epochs": {
+    "21": 2,
+    "23": 2
+  }
+}

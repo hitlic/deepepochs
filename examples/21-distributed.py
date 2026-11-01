@@ -1,7 +1,7 @@
 """
 PyTorch分布式与混合精度训练。
 
-直接运行本文件会自动使用可见GPU，无GPU时使用单CPU进程。
+直接运行本文件会自动使用可见GPU，无GPU时使用单CPU进程。 
 在入口设置launch(main, num_processes=4)可指定四进程。
 DataLoader的batch_size=32表示每进程32个样本，全局批量随进程数增加。
 也可使用torchrun --standalone --nproc-per-node=4 examples/21-distributed.py。

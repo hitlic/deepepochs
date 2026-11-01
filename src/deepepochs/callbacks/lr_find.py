@@ -1,6 +1,7 @@
 from matplotlib import pyplot as plt
-from .callback import Callback, CallbackException
+
 from ..loops import StopLoopException
+from .callback import Callback, CallbackException
 
 
 class LRFindCallback(Callback):

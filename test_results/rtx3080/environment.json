@@ -1,0 +1,36 @@
+{
+  "torch": "2.2.2+cu121",
+  "cuda": "12.1",
+  "nccl": [
+    2,
+    19,
+    3
+  ],
+  "devices": [
+    {
+      "index": 0,
+      "name": "NVIDIA GeForce RTX 3080",
+      "memory_mib": 10240,
+      "driver": "610.57.04"
+    },
+    {
+      "index": 1,
+      "name": "NVIDIA GeForce RTX 3080",
+      "memory_mib": 10240,
+      "driver": "610.57.04"
+    },
+    {
+      "index": 2,
+      "name": "NVIDIA GeForce RTX 3080",
+      "memory_mib": 10240,
+      "driver": "610.57.04"
+    },
+    {
+      "index": 3,
+      "name": "NVIDIA GeForce RTX 3080",
+      "memory_mib": 10240,
+      "driver": "610.57.04"
+    }
+  ],
+  "topology": "\tGPU0\tGPU1\tGPU2\tGPU3\tCPU Affinity\tNUMA Affinity\tGPU NUMA ID\nGPU0\t X \tPHB\tPHB\tPHB\t0-23\t0\t\tN/A\nGPU1\tPHB\t X \tPHB\tPHB\t0-23\t0\t\tN/A\nGPU2\tPHB\tPHB\t X \tPHB\t0-23\t0\t\tN/A\nGPU3\tPHB\tPHB\tPHB\t X \t0-23\t0\t\tN/A\n\nLegend:\n\n  X    = Self\n  SYS  = Connection traversing PCIe as well as the SMP interconnect between NUMA nodes (e.g., QPI/UPI)\n  NODE = Connection traversing PCIe as well as the interconnect between PCIe Host Bridges within a NUMA node\n  PHB  = Connection traversing PCIe as well as a PCIe Host Bridge (typically the CPU)\n  PXB  = Connection traversing multiple PCIe bridges (without traversing the PCIe Host Bridge)\n  PIX  = Connection traversing at most a single PCIe bridge\n  NV#  = Connection traversing a bonded set of # NVLinks\n"
+}

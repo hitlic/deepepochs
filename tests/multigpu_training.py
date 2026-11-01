@@ -1,10 +1,10 @@
-"""torchrun 下比较 CUDA/NCCL 训练与独立的完整全局批量参考。"""
+"""torchrun 下比较 CUDA/NCCL 训练与独立的完整全局批量参考。 """
 
 import argparse
-from contextlib import redirect_stdout
 import io
 import json
 import math
+from contextlib import redirect_stdout
 from pathlib import Path
 
 import torch

@@ -1,0 +1,21 @@
+{
+  "status": "PASS",
+  "world_size": 3,
+  "automatic_launch": true,
+  "epochs": 5,
+  "output": [
+    "E 1/5  TRAIN> loss: 0.7093   VAL> loss: 0.6795 ",
+    "E 2/5  TRAIN> loss: 0.7052   VAL> loss: 0.6767 ",
+    "E 3/5  TRAIN> loss: 0.7012   VAL> loss: 0.6742 ",
+    "E 4/5  TRAIN> loss: 0.6976   VAL> loss: 0.6718 ",
+    "E 5/5  TRAIN> loss: 0.6940   VAL> loss: 0.6693 ",
+    "E 1/1  TEST>  loss: 0.6693        "
+  ],
+  "test_metrics": {
+    "loss": 0.6693
+  },
+  "entrypoint": "README.md",
+  "readme_metrics": {
+    "loss": 0.6692662835121155
+  }
+}

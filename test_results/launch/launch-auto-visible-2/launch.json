@@ -1,0 +1,88 @@
+{
+  "status": "PASS",
+  "version": "0.7.1",
+  "rank": 0,
+  "world_size": 2,
+  "precision": "fp16",
+  "epochs": 3,
+  "loss": 0.4810384213924408,
+  "accuracy": 1.0,
+  "per_rank": [
+    {
+      "rank": 0,
+      "local_rank": 0,
+      "pid": 205929,
+      "device": "cuda:0",
+      "omp_num_threads": "1",
+      "loss": 0.4810384213924408,
+      "accuracy": 1.0,
+      "scaler": {
+        "scale": 65536.0,
+        "growth_factor": 2.0,
+        "backoff_factor": 0.5,
+        "growth_interval": 2000,
+        "_growth_tracker": 6
+      },
+      "parameters": {
+        "weight": [
+          [
+            0.15563851594924927,
+            0.18679438531398773,
+            -0.42753544449806213
+          ],
+          [
+            0.816135048866272,
+            0.16591227054595947,
+            0.4087744355201721
+          ]
+        ],
+        "bias": [
+          -0.14395779371261597,
+          0.2019648551940918
+        ]
+      }
+    },
+    {
+      "rank": 1,
+      "local_rank": 1,
+      "pid": 205930,
+      "device": "cuda:1",
+      "omp_num_threads": "1",
+      "loss": 0.4810384213924408,
+      "accuracy": 1.0,
+      "scaler": {
+        "scale": 65536.0,
+        "growth_factor": 2.0,
+        "backoff_factor": 0.5,
+        "growth_interval": 2000,
+        "_growth_tracker": 6
+      },
+      "parameters": {
+        "weight": [
+          [
+            0.15563851594924927,
+            0.18679438531398773,
+            -0.42753544449806213
+          ],
+          [
+            0.816135048866272,
+            0.16591227054595947,
+            0.4087744355201721
+          ]
+        ],
+        "bias": [
+          -0.14395779371261597,
+          0.2019648551940918
+        ]
+      }
+    }
+  ],
+  "checkpoint": "/tmp/deepepochs-launch-0emandkv/reports/launch-auto-visible-2/checkpoints/launch/checkpoint.ckpt",
+  "global_metric_reference": true,
+  "writer_closed": true,
+  "process_group_closed": true,
+  "launcher_parent_pid": 205855,
+  "parent_omp_before": null,
+  "parent_omp_after": null,
+  "signals_restored": true
+}

@@ -98,5 +98,4 @@ CHANGELOG.md
 MANIFEST.in
 deepepochs.egg-info
 progress.md
-test_results
 examples/deepepochs

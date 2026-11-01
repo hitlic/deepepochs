@@ -1,6 +1,6 @@
 # DeepEpochs
 
-DeepEpochs 是 PyTorch 深度学习模型训练工具。将模型、损失函数、优化器和 DataLoader 交给 `Trainer`，即可执行训练、验证和测试。
+DeepEpochs 是一个简单的 PyTorch 深度学习模型训练工具。将模型、损失函数、优化器和 DataLoader 交给 `Trainer`，即可执行训练、验证和测试。
 
 同时，DeepEpochs 还支持自定义指标、检查点保存与恢复、日志可视化、混合精度与分布式训练等，也可以针对特定任务通过多种方式进行定制。
 

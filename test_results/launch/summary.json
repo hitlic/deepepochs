@@ -1,0 +1,131 @@
+{
+  "version": "0.7.1",
+  "status": "PASS",
+  "environment": {
+    "gpus": "4 x NVIDIA GeForce RTX 3080 10 GiB",
+    "python": "3.11.8",
+    "torch": "2.2.2+cu121",
+    "cuda": "12.1",
+    "nccl": [
+      2,
+      19,
+      3
+    ]
+  },
+  "local_regression": {
+    "python": "3.10",
+    "torch": "2.1.0",
+    "run": 114,
+    "passed": 96,
+    "skipped": 18
+  },
+  "launcher_torch28": {
+    "python": "3.12",
+    "torch": "2.8.0",
+    "run": 8,
+    "passed": 8,
+    "skipped": 0
+  },
+  "installed_wheel_regression": {
+    "run": 111,
+    "passed": 109,
+    "skipped": 2,
+    "cuda_executed": 16,
+    "report": "unit-tests.json"
+  },
+  "gpu_launch_matrix": {
+    "passed": 9,
+    "cases": [
+      {
+        "precision": "fp32",
+        "world_size": 1,
+        "status": "PASS",
+        "report": "launch-1-fp32/launch.json",
+        "automatic_process_count": false
+      },
+      {
+        "precision": "fp32",
+        "world_size": 2,
+        "status": "PASS",
+        "report": "launch-2-fp32/launch.json",
+        "automatic_process_count": false
+      },
+      {
+        "precision": "fp32",
+        "world_size": 4,
+        "status": "PASS",
+        "report": "launch-4-fp32/launch.json",
+        "automatic_process_count": false
+      },
+      {
+        "precision": "fp16",
+        "world_size": 1,
+        "status": "PASS",
+        "report": "launch-1-fp16/launch.json",
+        "automatic_process_count": false
+      },
+      {
+        "precision": "fp16",
+        "world_size": 2,
+        "status": "PASS",
+        "report": "launch-2-fp16/launch.json",
+        "automatic_process_count": false
+      },
+      {
+        "precision": "fp16",
+        "world_size": 4,
+        "status": "PASS",
+        "report": "launch-4-fp16/launch.json",
+        "automatic_process_count": true
+      },
+      {
+        "precision": "bf16",
+        "world_size": 1,
+        "status": "PASS",
+        "report": "launch-1-bf16/launch.json",
+        "automatic_process_count": false
+      },
+      {
+        "precision": "bf16",
+        "world_size": 2,
+        "status": "PASS",
+        "report": "launch-2-bf16/launch.json",
+        "automatic_process_count": false
+      },
+      {
+        "precision": "bf16",
+        "world_size": 4,
+        "status": "PASS",
+        "report": "launch-4-bf16/launch.json",
+        "automatic_process_count": false
+      }
+    ]
+  },
+  "additional_launch_cases": [
+    {
+      "case": "launch-auto-visible-2",
+      "status": "PASS",
+      "world_size": 2,
+      "report": "launch-auto-visible-2/launch.json"
+    },
+    {
+      "case": "launch-external-4",
+      "status": "PASS",
+      "world_size": 4,
+      "report": "launch-external-4/launch.json"
+    }
+  ],
+  "python_examples": {
+    "passed": 3,
+    "report": "examples.json"
+  },
+  "checks": [
+    "rank-to-CUDA device binding",
+    "global metrics against full-data reference",
+    "synchronized parameters and scaler",
+    "checkpoint and training state",
+    "writer thread and process-group cleanup",
+    "rank-zero return value",
+    "caller OMP and signal restoration"
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "status": "PASS",
+  "version": "0.7.1",
+  "rank": 0,
+  "world_size": 3,
+  "precision": "bf16",
+  "epochs": 3,
+  "global_batch_size": 12,
+  "loss": 0.67578125,
+  "accuracy": 0.6666666865348816,
+  "per_rank": [
+    {
+      "rank": 0,
+      "local_rank": 0,
+      "pid": 250304,
+      "device": "cuda:0",
+      "omp_num_threads": "1",
+      "loss": 0.67578125,
+      "accuracy": 0.6666666865348816,
+      "scaler": {},
+      "parameters": {
+        "weight": [
+          [
+            0.29225704073905945,
+            0.330047070980072,
+            -0.28440314531326294
+          ],
+          [
+            0.6795020699501038,
+            0.022635897621512413,
+            0.26563432812690735
+          ]
+        ],
+        "bias": [
+          -0.13188417255878448,
+          0.18988290429115295
+        ]
+      }
+    },
+    {
+      "rank": 1,
+      "local_rank": 1,
+      "pid": 250305,
+      "device": "cuda:1",
+      "omp_num_threads": "1",
+      "loss": 0.67578125,
+      "accuracy": 0.6666666865348816,
+      "scaler": {},
+      "parameters": {
+        "weight": [
+          [
+            0.29225704073905945,
+            0.330047070980072,
+            -0.28440314531326294
+          ],
+          [
+            0.6795020699501038,
+            0.022635897621512413,
+            0.26563432812690735
+          ]
+        ],
+        "bias": [
+          -0.13188417255878448,
+          0.18988290429115295
+        ]
+      }
+    },
+    {
+      "rank": 2,
+      "local_rank": 2,
+      "pid": 250306,
+      "device": "cuda:2",
+      "omp_num_threads": "1",
+      "loss": 0.67578125,
+      "accuracy": 0.6666666865348816,
+      "scaler": {},
+      "parameters": {
+        "weight": [
+          [
+            0.29225704073905945,
+            0.330047070980072,
+            -0.28440314531326294
+          ],
+          [
+            0.6795020699501038,
+            0.022635897621512413,
+            0.26563432812690735
+          ]
+        ],
+        "bias": [
+          -0.13188417255878448,
+          0.18988290429115295
+        ]
+      }
+    }
+  ],
+  "checkpoint": "/tmp/deepepochs-three-gpu.tsi81sd5/launch-bf16/checkpoints/launch/checkpoint.ckpt",
+  "global_metric_reference": true,
+  "writer_closed": true,
+  "process_group_closed": true,
+  "launcher_parent_pid": 249849,
+  "parent_omp_before": "1",
+  "parent_omp_after": "1",
+  "signals_restored": true
+}

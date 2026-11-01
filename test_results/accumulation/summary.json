@@ -1,0 +1,86 @@
+{
+  "runs": [
+    {
+      "job": "unit-tests",
+      "status": "PASS",
+      "exit_code": 0,
+      "seconds": 100.99
+    },
+    {
+      "job": "training-2-fp32",
+      "status": "PASS",
+      "exit_code": 0,
+      "seconds": 11.89
+    },
+    {
+      "job": "training-2-fp16",
+      "status": "PASS",
+      "exit_code": 0,
+      "seconds": 11.86
+    },
+    {
+      "job": "training-2-bf16",
+      "status": "PASS",
+      "exit_code": 0,
+      "seconds": 11.89
+    },
+    {
+      "job": "training-4-fp32",
+      "status": "PASS",
+      "exit_code": 0,
+      "seconds": 11.89
+    },
+    {
+      "job": "training-4-fp16",
+      "status": "PASS",
+      "exit_code": 0,
+      "seconds": 11.94
+    },
+    {
+      "job": "training-4-bf16",
+      "status": "PASS",
+      "exit_code": 0,
+      "seconds": 12.02
+    }
+  ],
+  "date": "2026-11-01",
+  "version": "0.7.1",
+  "status": "PASS",
+  "environment": {
+    "python": "3.11.8 (main, Feb 26 2024, 21:39:34) [GCC 11.2.0]",
+    "torch": "2.2.2+cu121",
+    "cuda": "12.1",
+    "nccl": [
+      2,
+      19,
+      3
+    ],
+    "devices": [
+      "NVIDIA GeForce RTX 3080",
+      "NVIDIA GeForce RTX 3080",
+      "NVIDIA GeForce RTX 3080",
+      "NVIDIA GeForce RTX 3080"
+    ]
+  },
+  "unit_tests": {
+    "file": "unit-tests.json",
+    "run": 130,
+    "passed": 126,
+    "skipped": 4,
+    "cuda_passed": 18,
+    "packaging_tests_run_locally": 3
+  },
+  "training_matrix": {
+    "world_sizes": [
+      2,
+      4
+    ],
+    "precisions": [
+      "fp32",
+      "fp16",
+      "bf16"
+    ],
+    "checks": 68,
+    "interrupted_retry_checks": 12
+  }
+}

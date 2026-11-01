@@ -1,7 +1,9 @@
-import torch
-from .callback import Callback
-from torch.nn.utils.clip_grad import clip_grad_value_, clip_grad_norm_
 from functools import partial
+
+import torch
+from torch.nn.utils.clip_grad import clip_grad_norm_, clip_grad_value_
+
+from .callback import Callback
 
 
 class GradClipCallback(Callback):

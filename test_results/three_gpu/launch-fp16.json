@@ -1,0 +1,123 @@
+{
+  "status": "PASS",
+  "version": "0.7.1",
+  "rank": 0,
+  "world_size": 3,
+  "precision": "fp16",
+  "epochs": 3,
+  "global_batch_size": 12,
+  "loss": 0.67626953125,
+  "accuracy": 0.6666666865348816,
+  "per_rank": [
+    {
+      "rank": 0,
+      "local_rank": 0,
+      "pid": 249268,
+      "device": "cuda:0",
+      "omp_num_threads": "1",
+      "loss": 0.67626953125,
+      "accuracy": 0.6666666865348816,
+      "scaler": {
+        "scale": 65536.0,
+        "growth_factor": 2.0,
+        "backoff_factor": 0.5,
+        "growth_interval": 2000,
+        "_growth_tracker": 3
+      },
+      "parameters": {
+        "weight": [
+          [
+            0.29225051403045654,
+            0.3300548195838928,
+            -0.284406840801239
+          ],
+          [
+            0.6795161962509155,
+            0.02265220507979393,
+            0.26565155386924744
+          ]
+        ],
+        "bias": [
+          -0.13188420236110687,
+          0.18986661732196808
+        ]
+      }
+    },
+    {
+      "rank": 1,
+      "local_rank": 1,
+      "pid": 249269,
+      "device": "cuda:1",
+      "omp_num_threads": "1",
+      "loss": 0.67626953125,
+      "accuracy": 0.6666666865348816,
+      "scaler": {
+        "scale": 65536.0,
+        "growth_factor": 2.0,
+        "backoff_factor": 0.5,
+        "growth_interval": 2000,
+        "_growth_tracker": 3
+      },
+      "parameters": {
+        "weight": [
+          [
+            0.29225051403045654,
+            0.3300548195838928,
+            -0.284406840801239
+          ],
+          [
+            0.6795161962509155,
+            0.02265220507979393,
+            0.26565155386924744
+          ]
+        ],
+        "bias": [
+          -0.13188420236110687,
+          0.18986661732196808
+        ]
+      }
+    },
+    {
+      "rank": 2,
+      "local_rank": 2,
+      "pid": 249270,
+      "device": "cuda:2",
+      "omp_num_threads": "1",
+      "loss": 0.67626953125,
+      "accuracy": 0.6666666865348816,
+      "scaler": {
+        "scale": 65536.0,
+        "growth_factor": 2.0,
+        "backoff_factor": 0.5,
+        "growth_interval": 2000,
+        "_growth_tracker": 3
+      },
+      "parameters": {
+        "weight": [
+          [
+            0.29225051403045654,
+            0.3300548195838928,
+            -0.284406840801239
+          ],
+          [
+            0.6795161962509155,
+            0.02265220507979393,
+            0.26565155386924744
+          ]
+        ],
+        "bias": [
+          -0.13188420236110687,
+          0.18986661732196808
+        ]
+      }
+    }
+  ],
+  "checkpoint": "/tmp/deepepochs-three-gpu.tsi81sd5/launch-fp16/checkpoints/launch/checkpoint.ckpt",
+  "global_metric_reference": true,
+  "writer_closed": true,
+  "process_group_closed": true,
+  "launcher_parent_pid": 249196,
+  "parent_omp_before": "1",
+  "parent_omp_after": "1",
+  "signals_restored": true
+}

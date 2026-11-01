@@ -1,5 +1,5 @@
 """
-跨DataLoader batch梯度累积。
+跨DataLoader batch梯度累积。 
 
 gradient_accumulation_steps=2表示每两个batch更新一次参数。
 直接运行本文件会自动使用可见GPU，无GPU时使用单CPU进程。

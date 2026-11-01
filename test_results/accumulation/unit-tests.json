@@ -1,0 +1,42 @@
+{
+  "status": "PASS",
+  "version": "0.7.1",
+  "import_path": "/tmp/deepepochs-accumulation.lXLXPg/venv/lib/python3.11/site-packages/deepepochs",
+  "runtime_modules_match_source": 22,
+  "python": "3.11.8 (main, Feb 26 2024, 21:39:34) [GCC 11.2.0]",
+  "torch": "2.2.2+cu121",
+  "cuda": "12.1",
+  "nccl": [
+    2,
+    19,
+    3
+  ],
+  "devices": [
+    "NVIDIA GeForce RTX 3080",
+    "NVIDIA GeForce RTX 3080",
+    "NVIDIA GeForce RTX 3080",
+    "NVIDIA GeForce RTX 3080"
+  ],
+  "tests_run": 130,
+  "passed": 126,
+  "failures": [],
+  "errors": [],
+  "skipped": [
+    [
+      "test_amp_clipping.CpuAmpClippingTests.test_amp_joint_norm_deduplicates_shared_parameters_and_skips_empty_group",
+      "CPU GradScaler\u9700\u8981\u8f83\u65b0\u7684PyTorch"
+    ],
+    [
+      "test_amp_clipping.CpuAmpClippingTests.test_interrupted_amp_window_restarts_without_stale_scaler_state",
+      "CPU GradScaler\u9700\u8981\u8f83\u65b0\u7684PyTorch"
+    ],
+    [
+      "test_amp_clipping.CpuAmpClippingTests.test_nonfinite_optimizer_does_not_corrupt_finite_optimizer",
+      "CPU GradScaler\u9700\u8981\u8f83\u65b0\u7684PyTorch"
+    ],
+    [
+      "test_amp_clipping.CpuAmpClippingTests.test_partial_amp_update_keeps_committed_optimizer_and_discards_other_window",
+      "CPU GradScaler\u9700\u8981\u8f83\u65b0\u7684PyTorch"
+    ]
+  ]
+}

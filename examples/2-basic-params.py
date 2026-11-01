@@ -10,7 +10,7 @@ from torchvision.datasets import MNIST
 
 from deepepochs import Trainer
 
-# 1. --- datasets
+# 1. --- datasets 
 data_dir = './datasets'
 transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
 mnist_full = MNIST(data_dir, train=True, transform=transform, download=True)

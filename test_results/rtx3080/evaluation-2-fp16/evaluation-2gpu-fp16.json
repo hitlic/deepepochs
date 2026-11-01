@@ -1,0 +1,129 @@
+{
+  "status": "PASS",
+  "version": "0.7.0",
+  "torch": "2.2.2+cu121",
+  "cuda": "12.1",
+  "nccl": [
+    2,
+    19,
+    3
+  ],
+  "world_size": 2,
+  "precision": "fp16",
+  "devices": [
+    {
+      "rank": 0,
+      "local_rank": 0,
+      "device": "cuda:0",
+      "name": "NVIDIA GeForce RTX 3080",
+      "capability": [
+        8,
+        6
+      ]
+    },
+    {
+      "rank": 1,
+      "local_rank": 1,
+      "device": "cuda:1",
+      "name": "NVIDIA GeForce RTX 3080",
+      "capability": [
+        8,
+        6
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "case": "global_metrics",
+      "status": "PASS",
+      "seconds": 1.119,
+      "checked": [
+        "tensor:n=5",
+        "tensor:n=1",
+        "confusion:n=5",
+        "confusion:n=1"
+      ],
+      "reference": "one_gpu_full_dataset"
+    },
+    {
+      "case": "metric_owners",
+      "status": "PASS",
+      "seconds": 0.048,
+      "rank_zero_empty": true,
+      "dynamic_metric_owner": 1,
+      "cuda_closure": true
+    },
+    {
+      "case": "aggregation_errors",
+      "status": "PASS",
+      "seconds": 0.005,
+      "owner_error": "all_ranks_received",
+      "local_error": "all_ranks_received"
+    },
+    {
+      "case": "multitask_scheduler_checkpoint",
+      "status": "PASS",
+      "seconds": 0.116,
+      "epochs": 3,
+      "learning_rate": 0.02,
+      "best_markers": [
+        1,
+        3
+      ],
+      "portable_checkpoint": "/tmp/deepepochs-audit-ndrsv6ya/reports/evaluation-2-fp16/checkpoints/multiple/checkpoint-2.ckpt",
+      "rank_zero_writes": 4,
+      "test_restored_current_model": true
+    },
+    {
+      "case": "multiple_checkpoint_directories",
+      "status": "PASS",
+      "seconds": 0.01,
+      "restored_epoch": 2,
+      "restored_marker": 2.0,
+      "saved_markers": [
+        2.0,
+        1.0
+      ],
+      "first_monitor_to_resume": "score",
+      "selected_checkpoint": "/tmp/deepepochs-audit-ndrsv6ya/reports/evaluation-2-fp16/multiple-checkpoint-directories/a/saved/checkpoint-1.ckpt",
+      "monitor_paths": [
+        "/tmp/deepepochs-audit-ndrsv6ya/reports/evaluation-2-fp16/multiple-checkpoint-directories/a/saved/checkpoint-1.ckpt",
+        "/tmp/deepepochs-audit-ndrsv6ya/reports/evaluation-2-fp16/multiple-checkpoint-directories/b/saved/checkpoint-2.ckpt"
+      ]
+    },
+    {
+      "case": "custom_stop_cleanup",
+      "status": "PASS",
+      "seconds": 0.085,
+      "pending": 0,
+      "epochs_saved": [
+        0,
+        1,
+        1
+      ],
+      "original_stop_preserved": true
+    },
+    {
+      "case": "interpreter",
+      "status": "PASS",
+      "seconds": 0.146,
+      "samples": 5,
+      "top_indices": [
+        4,
+        3,
+        0
+      ],
+      "global_confusion_matrix": [
+        [
+          2,
+          1
+        ],
+        [
+          1,
+          1
+        ]
+      ],
+      "writer_rank": 0
+    }
+  ]
+}

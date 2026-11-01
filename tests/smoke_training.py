@@ -1,4 +1,4 @@
-"""同一脚本通过 python 或 torchrun 完成训练、评估和 Checkpoint 联调。"""
+"""同一脚本通过 python 或 torchrun 完成训练、评估和 Checkpoint 联调。 """
 import argparse
 import json
 import math

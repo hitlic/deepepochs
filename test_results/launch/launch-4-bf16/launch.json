@@ -1,0 +1,132 @@
+{
+  "status": "PASS",
+  "version": "0.7.1",
+  "rank": 0,
+  "world_size": 4,
+  "precision": "bf16",
+  "epochs": 3,
+  "loss": 0.4817708432674408,
+  "accuracy": 1.0,
+  "per_rank": [
+    {
+      "rank": 0,
+      "local_rank": 0,
+      "pid": 205594,
+      "device": "cuda:0",
+      "omp_num_threads": "1",
+      "loss": 0.4817708432674408,
+      "accuracy": 1.0,
+      "scaler": {},
+      "parameters": {
+        "weight": [
+          [
+            0.15555936098098755,
+            0.186808779835701,
+            -0.427525132894516
+          ],
+          [
+            0.8162043690681458,
+            0.16591180860996246,
+            0.4087827205657959
+          ]
+        ],
+        "bias": [
+          -0.14408136904239655,
+          0.20204216241836548
+        ]
+      }
+    },
+    {
+      "rank": 1,
+      "local_rank": 1,
+      "pid": 205595,
+      "device": "cuda:1",
+      "omp_num_threads": "1",
+      "loss": 0.4817708432674408,
+      "accuracy": 1.0,
+      "scaler": {},
+      "parameters": {
+        "weight": [
+          [
+            0.15555936098098755,
+            0.186808779835701,
+            -0.427525132894516
+          ],
+          [
+            0.8162043690681458,
+            0.16591180860996246,
+            0.4087827205657959
+          ]
+        ],
+        "bias": [
+          -0.14408136904239655,
+          0.20204216241836548
+        ]
+      }
+    },
+    {
+      "rank": 2,
+      "local_rank": 2,
+      "pid": 205596,
+      "device": "cuda:2",
+      "omp_num_threads": "1",
+      "loss": 0.4817708432674408,
+      "accuracy": 1.0,
+      "scaler": {},
+      "parameters": {
+        "weight": [
+          [
+            0.15555936098098755,
+            0.186808779835701,
+            -0.427525132894516
+          ],
+          [
+            0.8162043690681458,
+            0.16591180860996246,
+            0.4087827205657959
+          ]
+        ],
+        "bias": [
+          -0.14408136904239655,
+          0.20204216241836548
+        ]
+      }
+    },
+    {
+      "rank": 3,
+      "local_rank": 3,
+      "pid": 205597,
+      "device": "cuda:3",
+      "omp_num_threads": "1",
+      "loss": 0.4817708432674408,
+      "accuracy": 1.0,
+      "scaler": {},
+      "parameters": {
+        "weight": [
+          [
+            0.15555936098098755,
+            0.186808779835701,
+            -0.427525132894516
+          ],
+          [
+            0.8162043690681458,
+            0.16591180860996246,
+            0.4087827205657959
+          ]
+        ],
+        "bias": [
+          -0.14408136904239655,
+          0.20204216241836548
+        ]
+      }
+    }
+  ],
+  "checkpoint": "/tmp/deepepochs-launch-0emandkv/reports/launch-4-bf16/checkpoints/launch/checkpoint.ckpt",
+  "global_metric_reference": true,
+  "writer_closed": true,
+  "process_group_closed": true,
+  "launcher_parent_pid": 205541,
+  "parent_omp_before": null,
+  "parent_omp_after": null,
+  "signals_restored": true
+}

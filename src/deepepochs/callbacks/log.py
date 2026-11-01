@@ -1,11 +1,13 @@
-import sys
 import os
-from os import path as osp
 import platform
+import sys
+from os import path as osp
+
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.tensorboard.summary import hparams
-from .callback import Callback
+
 from ..loops import check_path
+from .callback import Callback
 
 
 class LogCallback(Callback):

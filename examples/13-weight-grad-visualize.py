@@ -1,5 +1,5 @@
 """
-可视化训练过程中模型各层输出（forward）和梯度（backward）的均值、标准差、分布
+可视化训练过程中模型各层输出（forward）和梯度（backward）的均值、标准差、分布 
 """
 import torch
 from torch import nn

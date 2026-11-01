@@ -1,0 +1,48 @@
+{
+  "status": "PASS",
+  "version": "0.7.1",
+  "rank": 0,
+  "world_size": 1,
+  "precision": "fp32",
+  "epochs": 3,
+  "loss": 0.4809999465942383,
+  "accuracy": 1.0,
+  "per_rank": [
+    {
+      "rank": 0,
+      "local_rank": 0,
+      "pid": 203848,
+      "device": "cuda:0",
+      "omp_num_threads": null,
+      "loss": 0.4809999465942383,
+      "accuracy": 1.0,
+      "scaler": {},
+      "parameters": {
+        "weight": [
+          [
+            0.1556197851896286,
+            0.18679369986057281,
+            -0.42752280831336975
+          ],
+          [
+            0.8161472082138062,
+            0.16591212153434753,
+            0.4087693989276886
+          ]
+        ],
+        "bias": [
+          -0.14399947226047516,
+          0.20198139548301697
+        ]
+      }
+    }
+  ],
+  "checkpoint": "/tmp/deepepochs-launch-0emandkv/reports/launch-1-fp32/checkpoints/launch/checkpoint.ckpt",
+  "global_metric_reference": true,
+  "writer_closed": true,
+  "process_group_closed": true,
+  "launcher_parent_pid": 203848,
+  "parent_omp_before": null,
+  "parent_omp_after": null,
+  "signals_restored": true
+}

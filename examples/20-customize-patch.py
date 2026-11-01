@@ -1,7 +1,7 @@
 """
 自定义Patch
 
-当需要非常高效地计算特殊指标时，可选择通过定制Patch来实现。
+当需要非常高效地计算特殊指标时，可选择通过定制Patch来实现。 
 
 定制Patch需要继承deepepochs.PatchBase类，重写`forward`方法和`add`方法：
     - `forward()`：无参数，返回当前Patch的指标值
