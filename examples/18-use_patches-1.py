@@ -53,10 +53,9 @@ def multi_metrics(conf_mat):
 
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 
-trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=2,
-                  metrics=[multi_metrics],                              # *** 使用输入为混淆矩阵的指标
-                  metric_patch='confusion'                              # *** 使用ConfusionPatch
-                  )
-
-progress = trainer.fit(train_dl, val_dl)
-test_rst = trainer.test(test_dl)
+with Trainer(model, F.cross_entropy, opt=opt, epochs=2,
+             metrics=[multi_metrics],                              # *** 使用输入为混淆矩阵的指标
+             metric_patch='confusion'                              # *** 使用ConfusionPatch
+             ) as trainer:
+    progress = trainer.fit(train_dl, val_dl)
+    test_rst = trainer.test(test_dl)

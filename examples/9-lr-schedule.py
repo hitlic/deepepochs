@@ -44,11 +44,8 @@ opt = Optimizer(
     )
 
 loger = LogCallback()
-trainer = Trainer(model, F.cross_entropy, opt, epochs=epoch_num, callbacks=[loger])
-try:
+with Trainer(model, F.cross_entropy, opt, epochs=epoch_num, callbacks=[loger]) as trainer:
     trainer.fit(train_dl, val_dl)
     trainer.test(test_dl)
-finally:
-    trainer.close()
 
 loger.run_tensorboard()

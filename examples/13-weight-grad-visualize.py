@@ -39,10 +39,7 @@ analyer = AnalyzeCallback(
     )
 
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
-trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=2, callbacks=[analyer])
-try:
+with Trainer(model, F.cross_entropy, opt=opt, epochs=2, callbacks=[analyer]) as trainer:
     progress = trainer.fit(train_dl, val_dl)
-finally:
-    trainer.close()
 
 analyer.run_tensorboard()            # 启动tensorboard，查看各层输出或梯度的统计

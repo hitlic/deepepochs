@@ -9,7 +9,7 @@ import torch
 from torch.nn import functional as F
 from torch.utils.data import DataLoader, TensorDataset
 
-from deepepochs import Callback, Trainer
+from deepepochs import Callback, EpochTask, Trainer
 from deepepochs.callbacks import AnalyzeCallback, InterpreteCallback, LogCallback, LRFindCallback
 from deepepochs.loops import StopLoopException
 from deepepochs.metrics import confusion_matrix
@@ -357,6 +357,33 @@ class CallbackTests(unittest.TestCase):
         self.assertEqual(len(callback.losses), 4)
         self.assertTrue(all(a < b for a, b in zip(callback.lrs, callback.lrs[1:])))
         self.assertEqual(optimizer.param_groups[0]['lr'], 1.)
+
+    def test_lr_finder_reads_each_current_task_loss(self):
+        from matplotlib import pyplot as plt
+        self.addCleanup(plt.close, 'all')
+
+        for names in (('main',), ('left', 'right', None)):
+            with self.subTest(names=names):
+                model = torch.nn.Linear(1, 1, bias=False)
+                optimizer = torch.optim.SGD(model.parameters(), lr=.1)
+                finder = LRFindCallback(max_batch=3, min_lr=.01, max_lr=.1)
+                # 零输入使参数梯度为零，各批损失可直接与标签平方对照。
+                targets = torch.tensor([[1.], [1.], [2.], [2.], [3.], [3.]])
+                if len(names) == 1:
+                    loader = DataLoader(TensorDataset(torch.zeros_like(targets), targets), batch_size=2)
+                    tasks = [EpochTask(loader, name=names[0])]
+                else:
+                    tasks = [EpochTask(DataLoader(TensorDataset(torch.zeros(2, 1), targets[2*i:2*i+2]),
+                                                  batch_size=2), name=name)
+                             for i, name in enumerate(names)]
+                with Trainer(model, F.mse_loss, optimizer, epochs=2, device='cpu',
+                             callbacks=[finder], show_info=False, log_batch=False) as trainer:
+                    with contextlib.redirect_stdout(io.StringIO()), patch('deepepochs.callbacks.lr_find.plt.show'):
+                        trainer.fit(train_tasks=tasks)
+                self.assertEqual(finder.losses, [1., 4., 9.])
+                self.assertEqual(finder.batches_seen, 3)
+                self.assertEqual(len(finder.lrs), 3)
+                self.assertAlmostEqual(optimizer.param_groups[0]['lr'], .1)
 
     def test_lr_finder_non_main_obeys_main_stop_decision(self):
         class Context:

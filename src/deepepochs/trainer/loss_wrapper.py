@@ -169,10 +169,14 @@ class LossWrapper:
         trainer.callbacks.trigger('after_optimize', trainer=trainer, optimize_index=optimize_index)
 
     def __call__(self, model_out, batch_y, loss_adjust=1.0, do_optimize=True, do_metric=True):
-        """计算标量损失；训练时默认反向传播并更新，保留自定义 step 的调用约定。
+        """计算损失；训练时反向传播，默认请求参数更新并记录指标。
 
-        loss_adjust 仍表示手动子批的权重。自动跨批累积仅在此处乘一次
-        batch 样本数，更新时再按窗口的真实样本数归一化。
+        do_optimize=False保留反向传播，只将更新时机交给optimize()；
+        do_metric=False跳过本次指标处理。参数实际更新后清空相应优化器的梯度。
+        验证与测试仅计算损失和指标，不执行反向或参数更新。
+
+        loss_adjust为手动子批的权重。自动跨批累积在此处乘batch样本数，
+        更新时再按窗口的真实样本数归一化。
         """
         trainer = self.trainer
         loss = None

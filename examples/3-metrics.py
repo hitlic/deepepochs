@@ -15,7 +15,6 @@ from deepepochs import metrics as dm
 data_dir = './datasets'
 transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
 mnist_full = MNIST(data_dir, train=True, transform=transform, download=True)
-train_ds, val_ds, _ = random_split(mnist_full, [5000, 5000, 50000])
 train_ds, val_ds, _ = random_split(mnist_full, [45000, 15000, 0])
 test_ds = MNIST(data_dir, train=False, transform=transform, download=True)
 
@@ -64,19 +63,17 @@ def multi_metrics(preds, targets):
 
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 
-trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=2,
-                  metrics=[acc],                             # 1. 在训练、验证和测试中使用的指标
-                  )
+with Trainer(model, F.cross_entropy, opt=opt, epochs=2,
+             metrics=[acc],                             # 1. 在训练、验证和测试中使用的指标
+             ) as trainer:
+    progress = trainer.fit(train_dl, val_dl,
+                            metrics=[multi_metrics],             # 2. 在训练和验证中使用的指标
+                            train_metrics=[multi_metrics],       # 3. 仅在训练中使用的指标
+                            val_metrics=[multi_metrics],         # 4. 仅在验证中使用的指标
+                            # 5. batch_size提供统计与归一化计数，不改变DataLoader的批量
+                            batch_size=lambda x, y: x.shape[0]  #    此处与默认推断相同；尾批按真实样本数计数
+                            )
 
-progress = trainer.fit(train_dl, val_dl,
-                        metrics=[multi_metrics],             # 2. 在训练和验证中使用的指标
-                        train_metrics=[multi_metrics],       # 3. 仅在训练中使用的指标
-                        val_metrics=[multi_metrics],         # 4. 仅在验证中使用的指标
-                        # batch_size=32                      # 5. 特殊情况下需指定batch_size或者能计算batch_size的函数，用于准确计算损失和指标
-                        batch_size= lambda x, y: x.shape[0]  #    若为函数，则参数为(batch_x, batch_y)，返回batch_size大小
-                        )
-
-test_rst = trainer.test(test_dl,
-                        metrics=[recall],                    # 6. 仅在测试中使用的指标
-                        batch_size=32                        # 同5.
-                        )
+    test_rst = trainer.test(test_dl,
+                            metrics=[recall],                    # 6. 仅在测试中使用的指标
+                            )

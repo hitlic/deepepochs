@@ -58,6 +58,6 @@ model = GCN(feat_dim, 16, dataset.num_classes)
 
 opt = torch.optim.Adam(model.parameters(), lr=0.01)
 
-trainer = Trainer(model, loss, opt, 100, metrics=[acc], device='cpu')  # DGL暂不支持mps
-trainer.fit(train_dl, val_dl, batch_size=None)  # 明确指定batch_size，以避免有可能出现的指标错误
-trainer.test(test_dl, batch_size=None)          # 明确指定batch_size，以避免有可能出现的指标错误
+with Trainer(model, loss, opt, 100, metrics=[acc], device='cpu') as trainer:
+    trainer.fit(train_dl, val_dl, batch_size=None)  # None沿用默认计数推断；此例每个阶段只有一张图
+    trainer.test(test_dl, batch_size=None)          # None沿用默认计数推断；此例每个阶段只有一张图

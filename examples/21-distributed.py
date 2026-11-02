@@ -42,12 +42,8 @@ def main():
             'r': dm.recall(preds, targets, average='macro')
         }
 
-    trainer = Trainer(model, F.cross_entropy, opt, epochs=2,
-                      metrics=[metrics],
-                      device=device,
-                      precision=precision,
-                      )
-    try:
+    with Trainer(model, F.cross_entropy, opt, epochs=2,
+                 metrics=[metrics], device=device, precision=precision) as trainer:
         data_dir = './datasets'
         transform = transforms.Compose([
             transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))
@@ -66,8 +62,6 @@ def main():
         test_dl = DataLoader(test_ds, batch_size=32)
         trainer.fit(train_dl, val_dl)
         trainer.test(test_dl)
-    finally:
-        trainer.close()
 
 
 if __name__ == '__main__':

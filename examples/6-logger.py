@@ -44,10 +44,7 @@ logger = LogCallback(
     )  # tensorboard日志callback
 
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
-trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=2, callbacks=[logger])
-try:
+with Trainer(model, F.cross_entropy, opt=opt, epochs=2, callbacks=[logger]) as trainer:
     progress = trainer.fit(train_dl, val_dl, metrics=[acc])
-finally:
-    trainer.close()
 
 logger.run_tensorboard()            # 启动tensorboard，在GRAPHS中查看模型结构图

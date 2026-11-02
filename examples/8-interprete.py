@@ -44,14 +44,11 @@ interpreter = InterpreteCallback(
     image_data=True                                       # 是否图像数据
     )
 
-trainer = Trainer(model, F.cross_entropy, opt, epochs=5,
-                  callbacks=[interpreter]                 # 启用interpreter
-                  )
-try:
+with Trainer(model, F.cross_entropy, opt, epochs=5,
+             callbacks=[interpreter]                 # 启用interpreter
+             ) as trainer:
     trainer.fit(train_dl, val_dl)                         # 训练、验证
     trainer.test(test_dl)                                 # 测试
-finally:
-    trainer.close()
 
 # interpreter.top_samples()                               # 返回top k个数据及相关信息
 interpreter.run_tensorboard()

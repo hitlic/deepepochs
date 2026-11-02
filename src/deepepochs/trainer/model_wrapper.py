@@ -21,6 +21,11 @@ class ModelWrapper:
         return getattr(self.model, name)
 
     def __call__(self, *args, **kwds):
+        if self.stage == 'predict':
+            # 预测不构建训练/测试指标，也不经过DDP的逐次前向通信。
+            model = self.trainer.distributed.unwrap_model(self.model)
+            with self.trainer.autocast():
+                return model(*args, **kwds)
         self.trainer.callbacks.trigger(f'before_{self.stage}_forward', trainer=self.trainer)
         model = self.model if self.stage == 'train' else self.trainer.distributed.unwrap_model(self.model)
         with self.trainer.autocast():

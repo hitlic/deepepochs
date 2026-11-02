@@ -53,6 +53,7 @@ class MyTask(EpochTask):
         """
         model_out = self.model(batch_x)
 
+        # 训练时反向传播并更新参数；评估时按do_loss设置计算损失。
         self.loss(model_out, batch_y)
 
         results = {}
@@ -83,11 +84,11 @@ model = nn.Sequential(
 )
 
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
-trainer = Trainer(model, F.cross_entropy, opt, epochs=2)  # 训练器
 
 train_task = MyTask(train_dl)
 val_task = MyTask(val_dl)
 test_task = MyTask(test_dl)
 
-trainer.fit(train_tasks=train_task, val_tasks=val_task)   # 使用Task
-trainer.test(tasks=test_task)                             # 使用Task
+with Trainer(model, F.cross_entropy, opt, epochs=2) as trainer:
+    trainer.fit(train_tasks=train_task, val_tasks=val_task)   # 使用Task
+    trainer.test(tasks=test_task)                             # 使用Task

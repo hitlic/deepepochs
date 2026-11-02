@@ -1,5 +1,6 @@
 import pickle
 import unittest
+import weakref
 
 import torch
 
@@ -35,6 +36,92 @@ class PatchesTests(unittest.TestCase):
                   'nested': {'aux': torch.ones(1, 1)}, 'loss': torch.tensor(5.)}
         result = TensorPatch(metric).load(first, None) + TensorPatch(metric).load(second, None)
         self.assertEqual(float(result()), 3.0)
+
+    def test_tensor_patch_detaches_nested_predictions_and_targets(self):
+        def metric(preds, targets):
+            for data in (preds, targets):
+                self.assertIsInstance(data['nested'], tuple)
+                self.assertIsInstance(data['nested'][1], list)
+                self.assertIsNone(data['nested'][1][1])
+            return (preds['value'] - targets['value']).abs().mean()
+
+        patches = []
+        originals = []
+        for values in ([1., 3.], [5.]):
+            inputs = torch.tensor(values, dtype=torch.float64, requires_grad=True)
+            labels = torch.zeros_like(inputs, requires_grad=True)
+            preds = {'value': inputs * 2, 'nested': (inputs.sin(), [inputs.cos(), None])}
+            targets = {'value': labels * 3, 'nested': (labels.square(), [labels.exp(), None])}
+            originals.append((inputs, labels, preds, targets))
+            patch = TensorPatch(metric).load(preds, targets)
+            patches.append(patch)
+            for stored, original in ((patch.batch_preds[0][0], preds),
+                                     (patch.batch_targets[0][0], targets)):
+                self.assertIsInstance(stored, dict)
+                self.assertIsInstance(stored['nested'], tuple)
+                self.assertIsInstance(stored['nested'][1], list)
+                self.assertIsNone(stored['nested'][1][1])
+                for value, source in ((stored['value'], original['value']),
+                                      (stored['nested'][0], original['nested'][0]),
+                                      (stored['nested'][1][0], original['nested'][1][0])):
+                    self.assertFalse(value.requires_grad)
+                    self.assertIsNone(value.grad_fn)
+                    self.assertEqual(value.dtype, torch.float64)
+                    self.assertEqual(value.data_ptr(), source.data_ptr())
+                    torch.testing.assert_close(value, source)
+        result = sum(patches)()
+        self.assertEqual(float(result), 6.)
+        self.assertFalse(result.requires_grad)
+        self.assertEqual([float(patch()) for patch in patches], [4., 10.])
+        for inputs, labels, preds, targets in originals:
+            (preds['value'].sum() + targets['value'].sum()).backward()
+            torch.testing.assert_close(inputs.grad, torch.full_like(inputs, 2.))
+            torch.testing.assert_close(labels.grad, torch.full_like(labels, 3.))
+
+    def test_custom_tensor_patch_releases_unused_auxiliary_activations(self):
+        activations = []
+        retained_patches = []
+        testcase = self
+
+        class Model(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.weight = torch.nn.Parameter(torch.ones(1))
+
+            def forward(self, inputs):
+                logits = inputs * self.weight
+                auxiliary = logits.sin()
+                activations.append(weakref.ref(auxiliary))
+                return {'logits': logits, 'nested': {'aux': auxiliary.square()}}
+
+        def metric(preds, targets):
+            testcase.assertFalse(preds['nested']['aux'].requires_grad)
+            return (preds['logits'] - targets).abs().mean()
+
+        class Trainer(TrainerBase):
+            def train_step(self, batch_x, batch_y, **step_args):
+                testcase.assertTrue(all(ref() is None for ref in activations))
+                predictions = self.model(batch_x)
+                self.loss(predictions['logits'], batch_y)
+                patch = TensorPatch(metric).load(predictions, batch_y)
+                retained_patches.append(patch)
+                return {'mae': patch}
+
+        inputs = torch.tensor([[1.], [3.], [5.]])
+        dataloader = torch.utils.data.DataLoader(
+            torch.utils.data.TensorDataset(inputs, torch.zeros_like(inputs)), batch_size=2)
+        model = Model()
+        optimizer = torch.optim.SGD(model.parameters(), lr=0.)
+        trainer = Trainer(model, torch.nn.functional.mse_loss, optimizer, epochs=1,
+                          device='cpu', log_batch=False, show_info=False)
+        try:
+            progress = trainer.fit(dataloader)
+            self.assertEqual(float(progress['train']['mae'][0]), 3.)
+            self.assertEqual(len(retained_patches), 2)
+            self.assertTrue(all(ref() is None for ref in activations))
+            self.assertEqual([float(patch()) for patch in retained_patches], [2., 5.])
+        finally:
+            trainer.close()
 
     def test_single_output_confusion_patches_keep_two_classes(self):
         metric = lambda matrix: metrics.accuracy(conf_mat=matrix)
@@ -166,13 +253,22 @@ class PatchesTests(unittest.TestCase):
                                    for key in self.hits_count}
                 return self
 
+        class GenericValuePatch(ValuePatch):
+            pass
+
+        class GenericMeanPatch(MeanPatch):
+            pass
+
+        class GenericConfusionPatch(ConfusionPatch):
+            pass
+
         mean = lambda preds, targets: preds.mean()
         accuracy = lambda matrix: metrics.accuracy(conf_mat=matrix)
         local = {
-            'loss': ValuePatch(2).load(torch.tensor(1.)),
-            'mean': MeanPatch(mean, 2).load(torch.tensor([1., 1.]), None),
+            'loss': GenericValuePatch(2).load(torch.tensor(1.)),
+            'mean': GenericMeanPatch(mean, 2).load(torch.tensor([1., 1.]), None),
             'tensor': TensorPatch(mean).load(torch.tensor([1., 1.], requires_grad=True), None),
-            'confusion': ConfusionPatch(accuracy).load(torch.tensor([0.1, 0.9]), torch.tensor([0, 0])),
+            'confusion': GenericConfusionPatch(accuracy).load(torch.tensor([0.1, 0.9]), torch.tensor([0, 0])),
             'custom': HitsPatch().load({'@1': 1, '@2': 2}),
         }
         remote_states = {
@@ -190,6 +286,8 @@ class PatchesTests(unittest.TestCase):
 
             def all_gather_object(self, data):
                 pickle.dumps(data)
+                if all(value is None for value in data.values()):
+                    return [data, dict.fromkeys(remote_states)]
                 tensor = data['tensor']['batch_preds'][0][0]
                 self_test.assertEqual(tensor.device.type, 'cpu')
                 self_test.assertFalse(tensor.requires_grad)
@@ -214,8 +312,13 @@ class PatchesTests(unittest.TestCase):
             world_size = 2
             is_distributed = True
 
+            calls = 0
+
             def all_gather_object(self, data):
                 self_test.assertEqual(data, {})
+                self.calls += 1
+                if self.calls == 1:
+                    return [{'loss': None}, {}]
                 return [{'loss': {'batch_size': 1, 'batch_value': 2.}}, {}]
 
             def broadcast_object(self, data, src):
@@ -226,11 +329,16 @@ class PatchesTests(unittest.TestCase):
         self.assertEqual(aggregate_patch_dicts([], Context()), {'loss': 2.})
 
     def test_rank_zero_can_receive_a_metric_owned_only_by_rank_one(self):
+        class GenericValuePatch(ValuePatch):
+            pass
+
         class Context:
             rank = 0
             is_distributed = True
 
             def all_gather_object(self, data):
+                if all(value is None for value in data.values()):
+                    return [data, {'remote': None}]
                 return [data, {'remote': {'batch_size': 1, 'batch_value': torch.tensor(7.)}}]
 
             def broadcast_object(self, data, src):
@@ -240,7 +348,7 @@ class PatchesTests(unittest.TestCase):
                 return ('remote', torch.tensor(7.), None)
 
         self_test = self
-        actual = aggregate_patch_dicts([{'local': ValuePatch(1).load(torch.tensor(2.))}], Context())
+        actual = aggregate_patch_dicts([{'local': GenericValuePatch(1).load(torch.tensor(2.))}], Context())
         self.assertEqual(float(actual['local']), 2.)
         self.assertEqual(float(actual['remote']), 7.)
 

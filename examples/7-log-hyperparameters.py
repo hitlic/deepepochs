@@ -51,20 +51,16 @@ for lr, dim, dropout in product(lr_s, dim_s, dropout_s):
     logger = LogCallback()
     opt = torch.optim.Adam(model.parameters(), lr=lr)
 
-    trainer = Trainer(model, F.cross_entropy, opt=opt, epochs=5,
-                    callbacks=[checker, logger],
-                    metrics=[multi_metrics],
-                    hyper_params={                          # 当前训练使用的超参数
-                        'lr': lr,
-                        'dim': dim,
-                        'dropout': dropout
-                        }
-                    )
-
-    try:
+    with Trainer(model, F.cross_entropy, opt=opt, epochs=5,
+                 callbacks=[checker, logger],
+                 metrics=[multi_metrics],
+                 hyper_params={                          # 当前训练使用的超参数
+                     'lr': lr,
+                     'dim': dim,
+                     'dropout': dropout
+                 }
+                 ) as trainer:
         progress = trainer.fit(train_dl, val_dl)
         test_rst = trainer.test(test_dl)                    # 超参数和测试指标值会在测试之后自动写入日志
-    finally:
-        trainer.close()
 
 logger.run_tensorboard()                                    # 启动tensorboard，在HPARAMS中查看

@@ -37,5 +37,5 @@ lr_finder = LRFindCallback(
     opt_id=None             # 优化器id（如果使用多个优化器需要指定是哪一个）
     )
 
-trainer = Trainer(model, F.cross_entropy, opt, epochs=2, callbacks=[lr_finder])
-trainer.fit(train_dl)
+with Trainer(model, F.cross_entropy, opt, epochs=2, callbacks=[lr_finder]) as trainer:
+    trainer.fit(train_dl)

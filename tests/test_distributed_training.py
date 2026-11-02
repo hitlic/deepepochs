@@ -137,15 +137,16 @@ def _metric_checks(context, stage):
 
     trainer = _trainer(FixedLogits(), nn.functional.cross_entropy, epochs=1)
     try:
-        tasks = [EpochTask(DataLoader(dataset, batch_size=2), metrics=[first_f1]),
+        tasks = [EpochTask(DataLoader(dataset, batch_size=2), metrics=[first_f1], name='full'),
                  EpochTask(DataLoader(TensorDataset(logits[:1], targets[:1]), batch_size=2),
-                           metrics=[second_accuracy])]
+                           metrics=[second_accuracy], name='tiny')]
         result = trainer.test(tasks=tasks)
-        assert abs(float(result['first_f1']) - 0.4) < 1e-6, result
-        assert float(result['second_accuracy']) == 1., result
-        # 同名指标延续现有最后一个 Task 覆盖的语义。
-        assert abs(float(result['loss']) -
-                   nn.functional.cross_entropy(logits[:1], targets[:1]).item()) < 1e-6
+        assert abs(float(result['full/first_f1']) - 0.4) < 1e-6, result
+        assert float(result['tiny/second_accuracy']) == 1., result
+        assert abs(float(result['full/loss']) - expected_loss) < 1e-6, result
+        assert abs(float(result['tiny/loss']) -
+                   nn.functional.cross_entropy(logits[:1], targets[:1]).item()) < 1e-6, result
+        assert 'loss' not in result, result
     finally:
         trainer.close()
 
@@ -263,7 +264,7 @@ def _checkpoint_checks(context, directory, stage):
         assert states == [(3, 2, 0.00625)] * 2, states
         path = Path(directory) / 'shared' / 'checkpoint.ckpt'
         assert path.is_file(), path
-        checkpoint = torch.load(path, map_location='cpu')
+        checkpoint = torch.load(path, map_location='cpu', weights_only=False)
         assert set(checkpoint['model_state']) == {'anchor', 'bias'}, checkpoint['model_state']
     finally:
         trainer.close()
@@ -309,6 +310,16 @@ def _worker(rank, port, directory, case):
             _checkpoint_checks(context, directory, stage)
         elif case == 'step-scheduler':
             _step_scheduler_checks(context, stage)
+        elif case in ('named-monitors', 'prediction', 'stochastic-resume'):
+            from multigpu_evaluation import (
+                named_dataset_monitors_case, stochastic_epoch_resume_case,
+                unlabeled_prediction_case,
+            )
+            cases = {'named-monitors': named_dataset_monitors_case,
+                     'prediction': unlabeled_prediction_case,
+                     'stochastic-resume': stochastic_epoch_resume_case}
+            stage(case)
+            cases[case](context, 'fp32', Path(directory))
         else:
             raise ValueError(case)
         stage('complete')
@@ -350,6 +361,18 @@ class DistributedTrainingTests(unittest.TestCase):
     def test_step_loss_scheduler_uses_global_accumulation_window(self):
         with tempfile.TemporaryDirectory() as directory:
             self._run_case('step-scheduler', directory)
+
+    def test_named_dataset_losses_and_explicit_epoch_monitor(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self._run_case('named-monitors', directory)
+
+    def test_unlabeled_prediction_has_exact_sample_ids_and_restores_weights(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self._run_case('prediction', directory)
+
+    def test_stochastic_epoch_resume_matches_continuous_ddp(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self._run_case('stochastic-resume', directory)
 
     def test_early_stopping_scheduler_and_portable_checkpoint(self):
         with tempfile.TemporaryDirectory() as directory:

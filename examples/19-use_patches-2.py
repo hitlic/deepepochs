@@ -54,7 +54,6 @@ model = nn.Sequential(
 )
 
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
-trainer = Trainer(model, F.cross_entropy, opt, epochs=2)
 
 
 def acc(preds, targets):
@@ -63,6 +62,7 @@ def acc(preds, targets):
 class MyTask(EpochTask):
     def step(self, batch_x, batch_y, **step_args):
         model_out = self.model(batch_x)
+        # 训练时反向传播并更新参数；评估时按do_loss设置计算损失。
         loss = self.loss(model_out, batch_y)
 
         batch_size = len(model_out)
@@ -80,5 +80,6 @@ train_task = MyTask(train_dl)
 val_task = MyTask(val_dl)
 test_task = MyTask(test_dl)
 
-trainer.fit(train_tasks=train_task, val_tasks=val_task)
-trainer.test(tasks=test_task)
+with Trainer(model, F.cross_entropy, opt, epochs=2) as trainer:
+    trainer.fit(train_tasks=train_task, val_tasks=val_task)
+    trainer.test(tasks=test_task)

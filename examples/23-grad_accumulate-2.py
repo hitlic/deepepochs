@@ -41,12 +41,9 @@ def main():
         nn.Linear(64, 10)
     )
     opt = torch.optim.Adam(model.parameters(), lr=2e-4)
-    trainer = Trainer(model, F.cross_entropy, opt, epochs=2,
-                      metrics=metrics,
-                      device=device,
-                      precision='fp32',
-                      gradient_accumulation_steps=2)
-    try:
+    with Trainer(model, F.cross_entropy, opt, epochs=2,
+                 metrics=metrics, device=device, precision='fp32',
+                 gradient_accumulation_steps=2) as trainer:
         data_dir = './datasets'
         transform = transforms.Compose([
             transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))
@@ -65,8 +62,6 @@ def main():
         test_dl = DataLoader(test_ds, batch_size=32)
         trainer.fit(train_dl, val_dl)
         trainer.test(test_dl, do_loss=False)
-    finally:
-        trainer.close()
 
 
 if __name__ == '__main__':

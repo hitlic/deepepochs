@@ -2,7 +2,8 @@
 @author: liuchen
 """
 import torch
-from .loops import sum_dicts, ddict
+
+from .loops import ddict
 
 
 def confusion_matrix(preds, targets, num_classes):
@@ -26,26 +27,40 @@ def confusion_matrix(preds, targets, num_classes):
     return cm.index_put_((targets, preds), one, accumulate=True)
 
 
+def _class_counts(c_mat):
+    return c_mat.diagonal(), c_mat.sum(dim=1), c_mat.sum(dim=0)
+
+
 def cmats_and_weights(c_mat):
     """获取各类别的混淆矩阵和权值"""
-    cmats = [ddict(__get_cmat_i(i, c_mat)) for i in range(c_mat.shape[0])]
-    return cmats, __weights(cmats)
+    tp, support, predicted = _class_counts(c_mat)
+    fn = support - tp
+    fp = predicted - tp
+    tn = support.sum() - tp - fn - fp
+    cmats = [ddict(TP=t, FN=n, FP=p, TN=u) for t, n, p, u in zip(tp, fn, fp, tn)]
+    return cmats, list((support / support.sum()).unbind())
 
 
-def __weights(c_mats):
-    """获取各类别权值（TP+FN）"""
-    weights = [mat.TP+mat.FN for mat in c_mats]
-    w_sum = sum(weights)
-    weights = [w/w_sum for w in weights]
-    return weights
+def _divide(numerator, denominator):
+    return torch.where(denominator == 0, 0, numerator / denominator)
 
 
-def __get_cmat_i(c_id, c_mat):
-    TP = c_mat[c_id, c_id]
-    FN = c_mat[c_id].sum() - TP
-    FP = c_mat[:, c_id].sum() - TP
-    TN = c_mat.sum() - TP - FN - FP
-    return ddict({'TP': TP, 'FN': FN, 'FP': FP, 'TN': TN})
+def _metric_counts(preds, targets, conf_mat, average):
+    __check_params(preds, targets, average, conf_mat)
+    if conf_mat is None:
+        conf_mat = confusion_matrix(preds, targets, get_class_num(preds, targets))
+    tp, support, predicted = _class_counts(conf_mat)
+    if average == 'micro':
+        return tp.sum(), support.sum(), predicted.sum()
+    return tp, support, predicted
+
+
+def _average(values, support, average):
+    if average == 'micro':
+        return values
+    if average == 'macro':
+        return values.mean()
+    return (values * (support / support.sum())).sum()
 
 
 def precision_fn(c_mat):
@@ -96,10 +111,8 @@ def accuracy(preds=None, targets=None, conf_mat=None):
     if conf_mat is None:
         num_class = get_class_num(preds, targets)
         conf_mat = confusion_matrix(preds, targets, num_class)
-    else:
-        num_class = conf_mat.shape[0]
 
-    return sum(conf_mat[i, i] for i in range(num_class))/conf_mat.sum()
+    return conf_mat.diagonal().sum() / conf_mat.sum()
 
 
 def recall(preds=None, targets=None, conf_mat=None, average='micro'):
@@ -111,23 +124,8 @@ def recall(preds=None, targets=None, conf_mat=None, average='micro'):
         targets:  标签
         average:  平均方式
     """
-    __check_params(preds, targets, average=average, conf_mat=conf_mat)
-    if conf_mat is None:
-        num_class = get_class_num(preds, targets)
-        conf_mat = confusion_matrix(preds, targets, num_class)
-    else:
-        num_class = conf_mat.shape[0]
-
-    c_mats, weights = cmats_and_weights(conf_mat)
-
-    if average == 'micro':
-        return recall_fn(sum_dicts(c_mats))
-    elif average == 'macro':
-        return sum(recall_fn(mat) for mat in c_mats)/num_class
-    else:
-        ps = [recall_fn(mat) for mat in c_mats]
-        v = sum(p*w for p, w in zip(ps, weights))
-        return v
+    tp, support, _ = _metric_counts(preds, targets, conf_mat, average)
+    return _average(_divide(tp, support), support, average)
 
 
 def precision(preds=None, targets=None, conf_mat=None, average='micro'):
@@ -139,22 +137,8 @@ def precision(preds=None, targets=None, conf_mat=None, average='micro'):
         targets:  标签
         average:  平均方式
     """
-    __check_params(preds, targets, average=average, conf_mat=conf_mat)
-    if conf_mat is None:
-        num_class = get_class_num(preds, targets)
-        conf_mat = confusion_matrix(preds, targets, num_class)
-    else:
-        num_class = conf_mat.shape[0]
-
-    c_mats, weights = cmats_and_weights(conf_mat)
-
-    if average == 'micro':
-        return precision_fn(sum_dicts(c_mats))
-    elif average == 'macro':
-        return sum(precision_fn(mat) for mat in c_mats)/num_class
-    else:
-        ps = [precision_fn(mat) for mat in c_mats]
-        return sum(p*w for p, w in zip(ps, weights))
+    tp, support, predicted = _metric_counts(preds, targets, conf_mat, average)
+    return _average(_divide(tp, predicted), support, average)
 
 
 def fbeta(preds=None, targets=None, conf_mat=None, beta=1, average='micro'):
@@ -166,23 +150,11 @@ def fbeta(preds=None, targets=None, conf_mat=None, beta=1, average='micro'):
         targets:  标签
         average:  平均方式
     """
-    __check_params(preds, targets, average=average, conf_mat=conf_mat)
-    if conf_mat is None:
-        num_class = get_class_num(preds, targets)
-        conf_mat = confusion_matrix(preds, targets, num_class)
-    else:
-        num_class = conf_mat.shape[0]
-
-    c_mats, weights = cmats_and_weights(conf_mat)
-
-    if average == 'micro':
-        return fbeta_fn(sum_dicts(c_mats), beta)
-    elif average == 'macro':
-        return sum(fbeta_fn(mat, beta) for mat in c_mats)/num_class
-    else:
-        ps = [fbeta_fn(mat, beta) for mat in c_mats]
-        v = sum(p*w for p, w in zip(ps, weights))
-        return v
+    tp, support, predicted = _metric_counts(preds, targets, conf_mat, average)
+    p = _divide(tp, predicted)
+    r = _divide(tp, support)
+    values = torch.where(p + r == 0, 0, (1 + beta**2) * (p * r) / (beta**2 * p + r))
+    return _average(values, support, average)
 
 
 def f1(preds=None, targets=None, conf_mat=None, average='micro'):

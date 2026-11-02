@@ -67,6 +67,13 @@ class Callback:
         """
         self.priority = priority * time.time()
 
+    def state_dict(self):
+        """返回需要在 epoch 边界恢复的数值状态，不包含运行资源。"""
+        return {}
+
+    def load_state_dict(self, state):
+        """恢复 state_dict 返回的状态；有状态回调应重写此方法。"""
+
     def on_before_fit(self, trainer, epochs):
         """
         Args:

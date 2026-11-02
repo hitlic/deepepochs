@@ -2,7 +2,7 @@ from os import path as osp
 
 from matplotlib import pyplot as plt
 from torch import Tensor
-from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter  # type: ignore
 
 from ..loops import check_path
 from ..metrics import confusion_matrix, get_class_num

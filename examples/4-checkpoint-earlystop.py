@@ -51,15 +51,14 @@ checker = CheckCallback(
 
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 
-trainer = Trainer(model, F.cross_entropy,
-                  callbacks=[checker],  # 启用CheckCallback
-                  metrics=[acc],
-                  resume=True,             # 是否从logs文件平中的Checkpoint加载
-                                        #    - False表示不加载
-                                        #    - True表示从最新的Checkpoint加载
-                                        #    - int、str表示加载相应ID的Checkpoint
-                  running_id=1,         # 当前训练的运行编号，用于指定日志和checkpoint的文件夹名，默认使用当前系统时间
-                  )
-
-progress = trainer.fit(train_dl, val_dl)
-test_rst = trainer.test(test_dl)
+with Trainer(model, F.cross_entropy, opt,
+             callbacks=[checker],  # 启用CheckCallback
+             metrics=[acc],
+             resume=True,             # 是否从各监控器目录恢复Checkpoint
+                                   #    - False表示不加载
+                                   #    - True表示从最新的Checkpoint加载
+                                   #    - int、str表示加载相应ID的Checkpoint
+             running_id=1,         # 当前训练的运行编号，用于指定日志和checkpoint的文件夹名，默认使用当前系统时间
+             ) as trainer:
+    progress = trainer.fit(train_dl, val_dl)
+    test_rst = trainer.test(test_dl, weights=checker)

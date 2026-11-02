@@ -58,6 +58,6 @@ model = Model()
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 
 # 4. --- train
-trainer = Trainer(model, opt=opt, epochs=2)  # 训练器
-trainer.fit(train_dl, val_dl)                             # 训练、验证
-trainer.test(test_dl)                                     # 测试
+with Trainer(model, opt=opt, epochs=2) as trainer:
+    trainer.fit(train_dl, val_dl)                             # 训练、验证
+    trainer.test(test_dl)                                     # 测试

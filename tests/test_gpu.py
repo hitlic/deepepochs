@@ -515,6 +515,11 @@ class GpuTrainerTests(unittest.TestCase):
             self.assertEqual(matrix.device, weights.device)
             return (matrix.diag() * weights).sum() / (matrix.sum(1) * weights).sum()
 
+        class CudaConfusionPatch(ConfusionPatch):
+            def forward(self):
+                self_test.assertEqual(self.confusion_matrix.device, weights.device)
+                return super().forward()
+
         class CudaMeanPatch(MeanPatch):
             def forward(self):
                 self_test.assertEqual(self.batch_value.device, weights.device)
@@ -543,7 +548,7 @@ class GpuTrainerTests(unittest.TestCase):
         targets = torch.tensor([0, 1], device='cuda')
         local = {
             'tensor': TensorPatch(tensor_metric).load(predictions, targets),
-            'confusion': ConfusionPatch(confusion_metric).load(predictions, targets),
+            'confusion': CudaConfusionPatch(confusion_metric).load(predictions, targets),
             'mean': CudaMeanPatch(lambda preds, labels: preds.mean(),
                                   torch.tensor(2, device='cuda')).load(predictions, targets),
             'custom': CudaCountPatch().load({'total': torch.tensor(2., device='cuda')}),
@@ -566,6 +571,8 @@ class GpuTrainerTests(unittest.TestCase):
 
             def all_gather_object(self, data):
                 pickle.dumps(data)
+                if all(value is None for value in data.values()):
+                    return [data, {key: None for key in remote}]
                 self_test.assertEqual(data['tensor']['batch_preds'][0][0].device.type, 'cpu')
                 self_test.assertEqual(data['tensor']['batch_targets'][0][0].device.type, 'cpu')
                 self_test.assertNotIn('metric', data['tensor'])

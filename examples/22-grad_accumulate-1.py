@@ -64,24 +64,25 @@ class Trainer(TrainerBase):
         for sub_idx, (sub_batch_x, sub_batch_y) in enumerate(zip(batches(batch_x, sub_batch_size), batches(batch_y, sub_batch_size))):
             # 手动将子batch数据放入device
             sub_batch_x, sub_batch_y = sub_batch_x.to(self.device), sub_batch_y.to(self.device)
+            # 子批损失按样本占比加权，反向累积为整批的平均梯度。
             loss_adjust = sub_batch_y.shape[0] / batch_y.shape[0]
             is_last = (sub_idx + 1) * sub_batch_size >= batch_y.shape[0]
             # 分布式训练中，仅在最后一个子batch同步梯度。
             with nullcontext() if is_last else self.no_sync():
                 sub_model_out = self.model(sub_batch_x)
-                loss_value += self.loss(sub_model_out, sub_batch_y, loss_adjust=loss_adjust, do_optimize=False, do_metric=False) * sub_batch_y.shape[0]
+                # 这里只反向传播，整批结束后再统一更新参数并记录指标。
+                loss_value += self.loss(sub_model_out, sub_batch_y, loss_adjust=loss_adjust, do_optimize=False, do_metric=False) * sub_batch_y.shape[0]  # type: ignore
             # 保存模型输出
             model_out.append(sub_model_out)
 
         # ------ 优化及结果处理
         # 优化参数，并梯度清零
         self.optimize()
-        # 触发metric处理的callback，确保指标正确计算
+        # 用整批损失、预测和标签统一记录指标
         self.do_metric(loss_value/batch_y.shape[0], concat(model_out), batch_y.to(self.device))
 
-
-trainer = Trainer(model, F.cross_entropy, opt, epochs=2, metrics=metrics,
-                  auto_traindata_to_device=False,       # 禁止在训练时自动将数据放入device
-                  device='cuda' if torch.cuda.is_available() else 'cpu')
-trainer.fit(train_dl, val_dl)                           # 训练、验证
-trainer.test(test_dl, do_loss=False)                    # 测试
+with Trainer(model, F.cross_entropy, opt, epochs=2, metrics=metrics,
+             auto_traindata_to_device=False,       # 禁止在训练时自动将数据放入device
+             device='cuda' if torch.cuda.is_available() else 'cpu') as trainer:
+    trainer.fit(train_dl, val_dl)                           # 训练、验证
+    trainer.test(test_dl, do_loss=False)                    # 测试

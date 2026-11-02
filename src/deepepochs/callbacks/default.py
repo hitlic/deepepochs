@@ -1,7 +1,10 @@
+from time import perf_counter
+
 import torch
-from .callback import Callback
-from ..loops import log_batch, log_epoch
+
+from ..loops import _color, _format_duration, log_batch, log_epoch
 from ..patches import ValuePatch
+from .callback import Callback
 
 
 class DefaultCallback(Callback):
@@ -14,7 +17,7 @@ class DefaultCallback(Callback):
         Args:
             log_long:  指标输出为长格式（7位小说）还是短格式（4位小数）
             log_batch: 是否输出batch的指标值
-            tqdm_iter: tqdm迭代对象
+            log_tqdm: 是否使用tqdm显示进度
         """
         super().__init__(priority=0)
         self.round_to = 7 if log_long else 4
@@ -28,9 +31,10 @@ class DefaultCallback(Callback):
         self.total_epochs = epochs
 
     def on_before_epoch(self, trainer, train_tasks, val_tasks, epoch_idx):
+        self._epoch_started_at = perf_counter()
         self.epoch_idx = epoch_idx
-        self.total_train_batchs = sum(len(task._train_dataloader) for task in train_tasks)  # 所有训练任务总batch数量
-        self.total_val_batchs = sum(len(task._val_dataloader) for task in val_tasks)      # 所有验证任务总batch数量
+        self.total_train_batchs = sum(task.num_batches('train') for task in train_tasks)  # 所有训练任务总batch数量
+        self.total_val_batchs = sum(task.num_batches('val') for task in val_tasks)      # 所有验证任务总batch数量
         self.global_train_batch_idx = 0                                     # 当前训练batch
         self.global_val_batch_idx = 0                                       # 当前验证batch
 
@@ -40,39 +44,48 @@ class DefaultCallback(Callback):
     def on_after_train_batch(self, trainer, metrics, batch_idx):
         self.global_train_batch_idx += 1
         if self.log_batch and trainer.main_process:
-            log_batch(metrics, self.epoch_idx+1, self.total_epochs, self.global_train_batch_idx, self.total_train_batchs, 'TRAIN', self.epoch_width, self.batch_width, self.round_to, self.tqdm_iter)
+            log_batch(metrics, self.epoch_idx+1, self.total_epochs, self.global_train_batch_idx, self.total_train_batchs, 'TRAIN', self.epoch_width, self.batch_width, self.round_to, self.tqdm_iter)  # noqa: E501
 
     def on_after_val_batch(self, trainer, metrics, batch_idx):
         self.global_val_batch_idx += 1
         if self.log_batch and trainer.main_process:
-            log_batch(metrics, self.epoch_idx+1, self.total_epochs, self.global_val_batch_idx, self.total_val_batchs, 'VAL', self.epoch_width, self.batch_width, self.round_to, self.tqdm_iter)
+            log_batch(metrics, self.epoch_idx+1, self.total_epochs, self.global_val_batch_idx, self.total_val_batchs, 'VAL', self.epoch_width, self.batch_width, self.round_to, self.tqdm_iter)  # noqa: E501
 
     def on_after_epoch(self, trainer, train_tasks, val_tasks, train_metrics, val_metrics, epoch_idx):
         if trainer.main_process:
+            elapsed = _format_duration(perf_counter() - self._epoch_started_at)
+            details = _color(f'[{elapsed}]', 'duration')
             if val_metrics:
-                log_epoch({'train': train_metrics, 'val': val_metrics}, epoch_idx+1, self.total_epochs, self.epoch_width, self.round_to, self.tqdm_iter)
+                log_epoch({'train': train_metrics, 'val': val_metrics}, epoch_idx+1, self.total_epochs,
+                          self.epoch_width, self.round_to, self.tqdm_iter, extra_info=details)
             else:
-                log_epoch({'train': train_metrics}, epoch_idx+1, self.total_epochs, self.epoch_width, self.round_to, self.tqdm_iter)
+                log_epoch({'train': train_metrics}, epoch_idx+1, self.total_epochs,
+                          self.epoch_width, self.round_to, self.tqdm_iter, extra_info=details)
 
         # 根据调度器的配置改变优化器学习率
-        sched_loss = val_metrics.get('loss', train_metrics.get('loss'))
-        trainer.opt.step(at='epoch', loss=sched_loss)
+        validated = bool(val_tasks) and (epoch_idx + 1) % val_tasks[0].val_freq == 0
+        trainer.opt.step_epoch(train_metrics, val_metrics, validated)
 
     def on_before_test_epochs(self, trainer, tasks):
         self.total_test_epochs = len(tasks)
         self.global_test_epoch_idx = 0
-        self.total_test_batchs = sum(len(task._test_dataloader) for task in tasks)
+        self.total_test_batchs = sum(task.num_batches('test') for task in tasks)
         self.global_test_batch_idx = 0
+
+    def on_before_test_epoch(self, trainer, task):
+        self._test_epoch_started_at = perf_counter()
 
     def on_after_test_epoch(self, trainer, task, metrics):
         if trainer.main_process:
-            log_epoch({'test': metrics}, self.global_test_epoch_idx+1, self.total_test_epochs, self.epoch_width, self.round_to)
+            elapsed = _format_duration(perf_counter() - self._test_epoch_started_at)
+            log_epoch({'test': metrics}, self.global_test_epoch_idx+1, self.total_test_epochs,
+                      self.epoch_width, self.round_to, extra_info=_color(f'[{elapsed}]', 'duration'))
         self.global_test_epoch_idx += 1
 
     def on_after_test_batch(self, trainer, metrics, batch_idx):
         self.global_test_batch_idx += 1
         if self.log_batch and trainer.main_process:
-            log_batch(metrics, self.global_test_epoch_idx+1, self.total_test_epochs, self.global_test_batch_idx, self.total_test_batchs, 'TEST', self.epoch_width, self.batch_width, self.round_to, self.tqdm_iter)
+            log_batch(metrics, self.global_test_epoch_idx+1, self.total_test_epochs, self.global_test_batch_idx, self.total_test_batchs, 'TEST', self.epoch_width, self.batch_width, self.round_to, self.tqdm_iter)  # noqa: E501
 
     def on_train_metrics(self, trainer, loss, model_out, batch_y, task):
         """当前task的每个指标构建Patch，并注入task.batch_patch_dict"""

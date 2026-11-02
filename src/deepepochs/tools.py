@@ -14,7 +14,7 @@ import numpy as np
 import torch
 import yaml
 from matplotlib import pyplot as plt
-from matplotlib.pyplot import MultipleLocator
+from matplotlib.pyplot import MultipleLocator  # type: ignore
 from torch.optim.lr_scheduler import _LRScheduler
 
 from .loops import TensorTuple, ddict
@@ -346,7 +346,7 @@ class LinearCosineScheduler(_LRScheduler):
         if step < self.warmup_steps:
             lr = self.max_val * (step + 1) / self.warmup_steps
         elif self.warmup_steps <= step <= self.total_steps:
-            lr = (self.max_val - self.min_val) * (1 + np.cos((step - self.warmup_steps + 1) * np.pi / (self.total_steps - self.warmup_steps + 1))) / 2 + self.min_val
+            lr = (self.max_val - self.min_val) * (1 + np.cos((step - self.warmup_steps + 1) * np.pi / (self.total_steps - self.warmup_steps + 1))) / 2 + self.min_val  # noqa: E501
         else:
             lr = self.min_val
         return [lr for _ in self.optimizer.param_groups]

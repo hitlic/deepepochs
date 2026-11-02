@@ -1,10 +1,12 @@
 """
 @author: liuchen
 """
+import sys
 import time
 from collections import defaultdict
 from contextlib import nullcontext
 from datetime import datetime
+from itertools import islice
 from typing import Callable, Dict, List, Literal, Union
 
 import torch
@@ -12,10 +14,32 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from ..callbacks import AnalyzeCallback, CallbackException, CallbackPool, DefaultCallback
-from ..callbacks.check import CheckCallback, finalize_checkpoints, restore_test_model
+from ..callbacks import AnalyzeCallback, CallbackPool, DefaultCallback
+from ..callbacks.check import (
+    CheckCallback,
+    finalize_checkpoints,
+    load_evaluation_model,
+    prepare_fit_state,
+    restore_fit_random_state,
+    restore_fit_state,
+    restore_test_model,
+)
 from ..distributed import DistributedContext
-from ..loops import LoopException, StopLoopException, compose_data, concat_dicts, default_loss, listify, to_numpy
+from ..loops import (
+    LoopException,
+    StopLoopException,
+    _clear_progress_line,
+    _color,
+    _ConsoleProgress,
+    _format_duration,
+    _format_learning_rates,
+    _terminal_columns,
+    compose_data,
+    concat_dicts,
+    default_loss,
+    listify,
+    to_numpy,
+)
 from ..optimizer import Optimizer, Optimizers
 from ..patches import ConfusionPatch, MeanPatch, PatchBase, TensorPatch
 from .epoch_task import EpochTask
@@ -40,11 +64,13 @@ class TrainerBase:
                  log_tqdm=False,
                  show_info=True,
                  auto_traindata_to_device=True,
+                 non_blocking=False,
                  compile_model=False,
                  precision="fp32",
                  split_batches=False,
                  gradient_accumulation_steps=1,
                  ddp_kwargs=None,
+                 compute_batch_metrics=True,
                  ):
         """
         Args:
@@ -70,15 +96,18 @@ class TrainerBase:
             log_tqdm  [bool]:                   是否使用tqdm显示进度
             show_info [bool]:                   fit时是否显示模型信息
             auto_traindata_to_device:           是否自动将训练数据放入device，在定制step时可根据需要选择
+            non_blocking [bool]:                自动搬运输入和标签时透传至Tensor.to，默认False
             precision [str]:                    fp32（默认）、fp16 或 bf16；FP16 在 CUDA 上使用 GradScaler
             split_batches [bool]:               将 DataLoader 的批量平均分给各进程，默认 False（每进程批量）
             gradient_accumulation_steps [int]:   每次参数更新累积的 DataLoader 批次数，默认 1
             ddp_kwargs [dict]:                   直接传入 PyTorch DistributedDataParallel 的参数
+            compute_batch_metrics [bool]:        是否逐批求值损失以外的指标；False仅在任务结束求值，默认True
             compile_model [bool]:               利用PyTorch 2.x对模型compile以提升速度（暂不支持mps、Windows [v2.1]）
         """
         self.show_info = show_info
         self.current_task = None
         self.auto_traindata_to_device = auto_traindata_to_device
+        self.non_blocking = non_blocking
 
         self.distributed = DistributedContext(device)
         self.device = self.distributed.device
@@ -98,7 +127,7 @@ class TrainerBase:
         if hasattr(torch.amp, 'GradScaler'):
             self.scaler = torch.amp.GradScaler('cuda', enabled=precision == 'fp16')
         else:
-            self.scaler = torch.cuda.amp.GradScaler(enabled=precision == 'fp16')
+            self.scaler = torch.cuda.amp.GradScaler(enabled=precision == 'fp16')   # type: ignore
         self._accumulation_should_step = True
         self._accumulation_count = 0
 
@@ -119,7 +148,9 @@ class TrainerBase:
 
         # 配置优化器
         if opt is None:
-            self.opt = Optimizers([Optimizer(Adam(model.parameters(), lr=0.001))])
+            parameters = list(model.parameters())
+            # 推理模型可以没有参数，优化器仅在有参数时自动构造。
+            self.opt = Optimizers([Optimizer(Adam(parameters, lr=0.001))] if parameters else [])
         elif isinstance(opt, torch.optim.Optimizer):
             self.opt = Optimizers([Optimizer(opt)])
         elif isinstance(opt, Optimizer):
@@ -147,11 +178,14 @@ class TrainerBase:
         # 文件编号和恢复匹配沿用用户配置顺序，不依赖回调的时间优先级。
         for ordinal, callback in enumerate(cb for cb in callbacks if isinstance(cb, CheckCallback)):
             callback._checkpoint_ordinal = ordinal
+        for ordinal, callback in enumerate(callbacks):
+            callback._callback_ordinal = ordinal
         self.callbacks = CallbackPool(callbacks)
         self.callbacks.prepare()
 
         # 通用于训练、验证和测试的指标
         self.general_metrics = listify(metrics)
+        self.compute_batch_metrics = compute_batch_metrics
 
         # 配置指标处理的Patch
         if isinstance(metric_patch, str):
@@ -179,14 +213,28 @@ class TrainerBase:
         self.is_fit_run = False                         # fit方法是否被调用
 
     def _train_info(self):
+        from .. import __version__
+
         self.print('=' * 50)
+        self.print(_color(f'DeepEpochs {__version__}', 'heading'))
         self.print(datetime.now())
         self.print(f"{'device:':<12} {self.device}")
         if self.distributed.is_distributed:
             self.print(f"{'processes:':<12} {self.world_size} (DDP)")
+        self.print(f"{'precision:':<12} {self.precision}")
+        if self.gradient_accumulation_steps > 1:
+            self.print(f"{'accumulate:':<12} {self.gradient_accumulation_steps}")
+        epochs = f'{self.init_epoch + 1}..{self.max_epochs}' if self.init_epoch < self.max_epochs else f'{self.init_epoch} completed (target {self.max_epochs})'  # type: ignore
+        self.print(f"{'epochs:':<12} {epochs}")
+        self.print(f"{'init lr:':<12} {_format_learning_rates(self.opt, self.default_cbk.round_to)}")
+        for index, task in enumerate(self.train_tasks):
+            size = getattr(task._train_dataloader, 'batch_size', None)
+            if size is not None:
+                task_name = f' {task.name or index}' if len(self.train_tasks) > 1 else ''
+                self.print(f"{'batch:':<12} {size} per process{task_name}")
         self.print(f"{'running ID:':<12} {self.running_id}")
         param_size = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-        self.print(f"{'parameters:':<12} {param_size}")
+        self.print(f"{'parameters:':<12} {param_size:,} (trainable)")
         self.print('-' * 50)
 
     def fit(self,
@@ -201,6 +249,8 @@ class TrainerBase:
             train_tasks: List[EpochTask]=None,
             val_tasks: List[EpochTask]= None,
             epochs=None,
+            limit_train_batches=None,
+            limit_val_batches=None,
             )-> Dict[str, list]:
         """
         训练模型。
@@ -213,13 +263,15 @@ class TrainerBase:
             val_freq:       验证频率
             do_val_loss:    是否计算验证损失
             batch_size:     整数或者函数，用于计算batch_size。
-                                若为整数，则在损失和指标计算中直接使用该数值；
-                                若为函数，则函数的参数为(batch_x, batch_y)，返回一个整数。
+                                用于损失和可加权指标的统计计数，不改变DataLoader批量；
+                                若为整数，每批均使用该固定计数，需与损失均值分母一致；
+                                若为函数，则参数为(batch_x, batch_y)，返回当前批次损失均值的分母，例如样本数或有效token数；
+                                None按输入推断实际样本数，包含不足整批的尾批。
             train_metrics:  训练指标函数列表；可与metrics参数同时使用
             val_metrics:    验证指标函数列表；可与metrics参数同时使用
             train_tasks:    训练任务（EpochTask对象）列表
             val_tasks:      验证任务（EpochTask对象）列表；当需要在多个验证数据集上进行不同指标的验证时，将数据和指标封装为EpochTask
-            epochs:         指定当前训练的迭代次数
+            epochs:         首次调用设置目标总轮数，再次调用指定额外轮数；None延续既定目标
         """
         # assert not (train_dl is None and train_tasks is None), '`Trainer.fit`方法中，`train_dl`参数和`train_tasks`参数只能有一个为None！'
         # assert not (train_dl is not None and train_tasks is not None), '`Trainer.fit`方法中，`train_dl`参数和`train_tasks`参数只能有一个不为None！'
@@ -232,10 +284,8 @@ class TrainerBase:
             if not self.is_fit_run:
                 self.max_epochs = epochs            # 首次fit
             else:
-                self.max_epochs += epochs           # 再次fit
-
-        if not self.is_fit_run and self.show_info:  # 首次fit输出信息
-            self._train_info()
+                # 显式续训从已完成轮数计起，不带入中断时尚未执行的计划。
+                self.max_epochs = self.init_epoch + epochs
 
         self.is_fit_run = True
 
@@ -245,12 +295,15 @@ class TrainerBase:
         self.train_metrics = [m for m in listify(train_metrics) if m not in metrics] + metrics
         self.val_metrics =  [m for m in listify(val_metrics) if m not in metrics] + metrics
 
+        EpochTask.validate_max_batches(limit_train_batches)
+        EpochTask.validate_max_batches(limit_val_batches)
         # 配置训练任务
-        train_tasks = listify(train_tasks)
+        train_tasks = list(listify(train_tasks))
         if train_dl is not None:
             train_tasks.insert(0, EpochTask(train_dl, metrics=self.train_metrics, batch_size=batch_size))
         for task in train_tasks:
             task.trainer = self
+            task._train_max_batches = task.max_batches if limit_train_batches is None else limit_train_batches
             task._train_dataloader = self.distributed.prepare_dataloader(
                 task.dataloader, training=True, split_batches=self.split_batches)
 
@@ -261,22 +314,36 @@ class TrainerBase:
         for task in val_tasks:
             task.trainer = self
             task.val_freq = val_freq
+            task._val_max_batches = task.max_batches if limit_val_batches is None else limit_val_batches
             task._val_dataloader = self.distributed.prepare_dataloader(
                 task.dataloader, training=False, split_batches=self.split_batches)
+
+        self.train_tasks, self.val_tasks = train_tasks, val_tasks
 
         # 保存各epoch的指标值，作为fit方法返回值
         progress_metrics = defaultdict(list)
 
         # Fit
+        progress_bar = None
+        started_at = time.perf_counter()
         try:
+            prepare_fit_state(self)
             self.callbacks.trigger('before_fit', trainer=self, epochs=self.max_epochs)
+            restore_fit_state(self, train_tasks, val_tasks)
             # 初始化回调可以随机重置模型；开始训练前以主进程状态统一参数和 buffer。
             self.distributed.sync_model(self.model.model)
+            restore_fit_random_state(self)
+            if self.show_info:
+                self._train_info()
+            first_epoch = self.init_epoch
+            stopped = False
             try:
                 epoch_iter = range(self.init_epoch, self.max_epochs)
-                if self.log_tqdm:
-                    epoch_iter = tqdm(epoch_iter, disable=(not self.main_process), bar_format="{percentage:3.0f}%|{bar}| {desc}")
-                    self.default_cbk.tqdm_iter = epoch_iter
+                if self.log_tqdm and self.main_process and _terminal_columns():
+                    progress_bar = _ConsoleProgress(epoch_iter, file=sys.stdout, leave=False,
+                                                    bar_format="{percentage:3.0f}%|{bar}| {desc}")
+                    self.default_cbk.tqdm_iter = progress_bar
+                    epoch_iter = progress_bar
                 for epoch_idx in epoch_iter:
                     self.epoch_idx = epoch_idx
                     self.callbacks.trigger('before_epoch', trainer=self, train_tasks=train_tasks, val_tasks=val_tasks, epoch_idx=epoch_idx)
@@ -286,7 +353,7 @@ class TrainerBase:
                     for train_task in train_tasks:
                         self.current_task = train_task
                         train_task.stage = 'train'
-                        train_metric_values.update(train_task())
+                        self._merge_task_metrics(train_metric_values, train_task())
                     self.callbacks.trigger('after_train_epochs', trainer=self, tasks=train_tasks, metrics=train_metric_values, epoch_idx=epoch_idx)
                     progress_metrics['train'].append(train_metric_values)
 
@@ -297,13 +364,13 @@ class TrainerBase:
                         for val_task in val_tasks:
                             self.current_task = val_task
                             val_task.stage = 'val'
-                            val_metric_values.update(val_task())
+                            self._merge_task_metrics(val_metric_values, val_task())
                         self.callbacks.trigger('after_val_epochs', trainer=self, tasks=val_tasks, metrics=val_metric_values, epoch_idx=epoch_idx)
                         progress_metrics['val'].append(val_metric_values)
                     # 本轮已完成；早停回调抛出停止信号时也应保留正确的下一轮编号。
                     self.init_epoch = epoch_idx + 1
                     try:
-                        self.callbacks.trigger('after_epoch', trainer=self, train_tasks=train_tasks, val_tasks=val_tasks, train_metrics=train_metric_values, val_metrics=val_metric_values, epoch_idx=epoch_idx)
+                        self.callbacks.trigger('after_epoch', trainer=self, train_tasks=train_tasks, val_tasks=val_tasks, train_metrics=train_metric_values, val_metrics=val_metric_values, epoch_idx=epoch_idx)  # noqa: E501
                     except BaseException as error:
                         # 完成本轮保存，并保留当前回调的异常或主动停止原因。
                         finalize_checkpoints(self, callback_error=error)
@@ -311,18 +378,30 @@ class TrainerBase:
                     else:
                         finalize_checkpoints(self)
             except KeyboardInterrupt:
-                self.print('\nStop trainning manually!')
+                stopped = True
+                self.print(_color('[STOP]', 'warning'), 'Training interrupted by user.')
             except StopLoopException as e:
-                self.print('\n', e, sep='')
-            except LoopException as e:
-                self.print('\t', e, sep='')
-            except CallbackException as e:
-                self.print('\t', e, sep='')
+                stopped = True
+                self.print(_color('[STOP]', 'warning'), str(e) or 'Training stopped by callback.')
 
+            elapsed = time.perf_counter() - started_at
             self.callbacks.trigger('after_fit', trainer=self)
+            # 日志回调共享writer；训练结束后统一显示一次实际写入目录。
+            logger = getattr(self, 'logger', None)
+            log_dir = getattr(logger, 'log_dir', None)
+            if log_dir is not None:
+                self.print(_color('[LOG]', 'heading'), f'TensorBoard: {log_dir}')
+            if self.show_info:
+                label = _color('[STOPPED]', 'warning') if stopped else _color('[FINISHED]', 'success')
+                duration = _color(f'[{_format_duration(elapsed)}]', 'duration')
+                self.print(f'{label} epochs: {self.init_epoch - first_epoch}   {duration}')
             return {k: concat_dicts(v) for k, v in progress_metrics.items()}
         finally:
-            # 初始化、训练或结束回调失败时，都不能留下捕获后续计算的分析 hooks。
+            # 进度条和分析hooks都随本次fit收尾，test使用自己的批次输出。
+            if progress_bar is not None:
+                progress_bar.close()
+            self.default_cbk.tqdm_iter = None
+            _clear_progress_line()
             self._remove_analysis_hooks()
 
     def prepare_data(self, batch_data, to_device):
@@ -345,7 +424,8 @@ class TrainerBase:
         batch_x, batch_y = compose_data(batch_x), compose_data(batch_y)
 
         if to_device:
-            batch_x, batch_y = batch_x.to(self.device), batch_y.to(self.device)
+            batch_x = batch_x.to(self.device, non_blocking=self.non_blocking)
+            batch_y = batch_y.to(self.device, non_blocking=self.non_blocking)
 
         if isinstance(batch_x, (list, tuple)) and len(batch_x)==1:
             batch_x = batch_x[0]
@@ -355,15 +435,17 @@ class TrainerBase:
 
         return batch_x, batch_y
 
-    def test(self, test_dl: DataLoader=None, metrics:List[Callable]=None, do_loss:bool=True, batch_size:Union[int, Callable]=None, tasks:List[EpochTask]=None)-> dict:
+    def test(self, test_dl: DataLoader=None, metrics:List[Callable]=None, do_loss:bool=True, batch_size:Union[int, Callable]=None, tasks:List[EpochTask]=None, weights='auto', limit_batches=None)-> dict:  # noqa: E501
         """
         Args:
             test_dl:     测试Dataloader
             metrics:     测试指标函数列表
             do_loss:     是否计算测试损失
             batch_size:  整数或者函数，用于计算batch_size。
-                            若为整数，则在损失和指标计算中直接使用该数值；
-                            若为函数，则函数的参数为(batch_x, batch_y)，返回一个整数。
+                            用于损失和可加权指标的统计计数，不改变DataLoader批量；
+                                若为整数，每批均使用该固定计数，需与损失均值分母一致；
+                            若为函数，则参数为(batch_x, batch_y)，返回当前批次损失均值的分母，例如样本数或有效token数；
+                                None按输入推断实际样本数，包含不足整批的尾批。
             tasks:       测试任务（EpochTask对象）列表；当需要在多个测试数据集上进行不同指标的测试时，将数据和指标封装为EpochTask
         """
         assert not (test_dl is None and tasks is None), '`Trainer.test`方法中，`train_dl`参数和`task`参数不能同时为None！'
@@ -372,31 +454,89 @@ class TrainerBase:
         self.test_metrics = [m for m in listify(metrics) if m not in self.general_metrics] + self.general_metrics
 
         # 合并仅作用于本次调用的任务列表，调用方可复用原列表。
+        EpochTask.validate_max_batches(limit_batches)
         test_tasks = list(listify(tasks))
         if test_dl is not None:
             task = EpochTask(test_dl, metrics=self.test_metrics, do_loss=do_loss, batch_size=batch_size)
             test_tasks.insert(0, task)
         for task in test_tasks:
             task.trainer = self
+            task._test_max_batches = task.max_batches if limit_batches is None else limit_batches
             task._test_dataloader = self.distributed.prepare_dataloader(
                 task.dataloader, training=False, split_batches=self.split_batches)
 
         # 运行测试
         try:
+            load_evaluation_model(self, weights)
             test_metric_values = {}
             self.callbacks.trigger('before_test_epochs', trainer=self, tasks=test_tasks)
             for task in test_tasks:
                 self.current_task = task
                 task.stage = 'test'
                 metric_values = task()
-                test_metric_values.update(metric_values)
+                self._merge_task_metrics(test_metric_values, metric_values)
             self.callbacks.trigger('after_test_epochs', trainer=self, tasks=test_tasks, metrics=test_metric_values)
-            return to_numpy(test_metric_values)
-        except LoopException as e:
-            self.print('\n', e, sep='')
+            return to_numpy(test_metric_values) # type: ignore
         finally:
             restore_test_model(self)
-        return {}
+
+    @staticmethod
+    def _merge_task_metrics(metrics, values):
+        duplicate = metrics.keys() & values.keys()
+        if duplicate:
+            raise ValueError(f'任务指标重名：{", ".join(sorted(duplicate))}；请为EpochTask指定不同的name。')
+        metrics.update(values)
+
+    def predict(self, dataloader, weights='current', limit_batches=None):
+        """逐批产生独立CPU预测；输入不拆标签，多卡各进程返回自己的分片。
+
+        weights可取current、auto、CheckCallback实例或文件。提前退出迭代时
+        应关闭生成器，例如使用contextlib.closing，确保临时权重与模式恢复。
+        """
+        EpochTask.validate_max_batches(limit_batches)
+        loader = self.distributed.prepare_dataloader(dataloader, training=False,
+                                                     split_batches=self.split_batches)
+        modes = [(module, module.training) for module in self.model.modules()]
+        stage, task = self.model.stage, self.current_task
+        try:
+            load_evaluation_model(self, weights)
+            self.model.eval()
+            self.model.stage = 'predict'
+            self.current_task = None
+            # 只在入口同步；不同长度或空分片不进行逐批collective。
+            self.distributed.sync_model(self.model.model)
+            batches = loader if limit_batches is None else islice(loader, limit_batches)
+            for batch in batches:
+                with torch.no_grad(), self.autocast():
+                    inputs = compose_data(batch).to(self.device, non_blocking=self.non_blocking)
+                    result = self._prediction_to_cpu(self.predict_step(inputs))
+                # grad/autocast上下文不能跨yield影响调用方。
+                yield result
+        finally:
+            try:
+                restore_test_model(self)
+            finally:
+                self.model.stage, self.current_task = stage, task
+                for module, training in modes:
+                    module.training = training
+
+    def predict_step(self, batch_x):
+        """默认整批作为输入；含标签或样本ID的批次可覆盖此方法自行拆分。"""
+        if isinstance(batch_x, dict):
+            return self.model(**batch_x)
+        if isinstance(batch_x, (tuple, list)):
+            return self.model(*batch_x)
+        return self.model(batch_x)
+
+    @staticmethod
+    def _prediction_to_cpu(value):
+        if isinstance(value, torch.Tensor):
+            return value.detach().to(device='cpu', copy=True)
+        if isinstance(value, dict):
+            return {key: TrainerBase._prediction_to_cpu(item) for key, item in value.items()}
+        if isinstance(value, (tuple, list)):
+            return type(value)(TrainerBase._prediction_to_cpu(item) for item in value)
+        return value
 
     def autocast(self):
         """只包围前向与损失计算，反向传播在此上下文之外执行。"""
@@ -423,6 +563,13 @@ class TrainerBase:
             if isinstance(callback, AnalyzeCallback):
                 callback.remove_hooks()
 
+    def __enter__(self):
+        """在同一个上下文中完成训练与测试，退出时释放资源。"""
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+
     def close(self):
         """移除分析 hooks、关闭共享日志writer并释放训练器创建的进程组。"""
         logger = getattr(self, 'logger', None)
@@ -440,14 +587,22 @@ class TrainerBase:
             self.distributed.close()
 
     def print(self, *args, **kwargs):
-        if self.main_process:
+        if not self.main_process:
+            return
+        stream = kwargs.get('file') or sys.stdout
+        if self.default_cbk.tqdm_iter is not None:
+            with tqdm.external_write_mode(file=stream):
+                print(*args, **kwargs)
+        else:
+            if stream is sys.stdout:
+                _clear_progress_line()
             print(*args, **kwargs)
 
     def train_step(self,
                    batch_x: Union[torch.Tensor, List[torch.Tensor]],
                    batch_y: Union[torch.Tensor, List[torch.Tensor]],
                    **step_args
-                   ) -> Dict[str, PatchBase]:
+                   ) -> Dict[str, PatchBase]: # type: ignore
         """
         非常规训练可重写本方法
         Args:
@@ -466,14 +621,14 @@ class TrainerBase:
             model_out = self.model(*batch_x)
         else:
             model_out = self.model(batch_x)
-        # self.loss是对Trainer中loss参数的封装，在训练中会自动调用opt.zero_grad、loss.backward、opt.step等方法
+        # 训练阶段计算损失、反向传播并请求参数更新；累积窗口中间批次保留梯度。
         self.loss(model_out, batch_y)
 
     def evaluate_step(self,
                       batch_x: Union[torch.Tensor, List[torch.Tensor]],
                       batch_y: Union[torch.Tensor, List[torch.Tensor]],
                       **step_args
-                      ) -> Dict[str, PatchBase]:
+                      ) -> Dict[str, PatchBase]:  # type: ignore
         """
         非常规验证或测试可重写本方法，或定义val_step方法、test_step方法
         Args:
@@ -492,16 +647,16 @@ class TrainerBase:
             model_out = self.model(*batch_x)
         else:
             model_out = self.model(batch_x)
-        # self.loss是对Trainer中loss参数的封装，在训练中会自动调用opt.zero_grad、loss.backward、opt.step等方法
+        # 评估阶段只计算损失和指标，不反向传播或更新参数。
         self.loss(model_out, batch_y)
 
     def load_checkpoint(self, ckpt_path):
         """
-        从Checkpoint文件中加载模型参数
+        从Checkpoint恢复模型、优化器、调度器、GradScaler和已完成轮次。
         """
         from ..callbacks.check import load_state  # pylint: disable=C0415
-        print(f'loading checkpoint from {ckpt_path} ...')
         load_state(self, ckpt_path)
+        self.print(_color('[LOADED]', 'success'), f'checkpoint: {ckpt_path}  next epoch: {self.init_epoch + 1}')
         return self
 
 

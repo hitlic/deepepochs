@@ -47,7 +47,7 @@ class ModelInitCallback(Callback):
             if param.dim() > 1:
                 nn.init.kaiming_uniform_(param)
 
-trainer = Trainer(model, F.cross_entropy, opt, epochs=2,
-                  callbacks=[ModelInitCallback()]           # 启用自定义Callback
-                  )
-trainer.fit(train_dl, val_dl)
+with Trainer(model, F.cross_entropy, opt, epochs=2,
+             callbacks=[ModelInitCallback()]           # 启用自定义Callback
+             ) as trainer:
+    trainer.fit(train_dl, val_dl)

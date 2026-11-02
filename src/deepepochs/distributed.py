@@ -77,7 +77,8 @@ class DistributedContext:
         if isinstance(model, DistributedDataParallel):
             return model
         model = model.to(self.device)
-        if not self.is_distributed:
+        # 纯推理模型可能没有可训练参数，无需梯度并行包装。
+        if not self.is_distributed or not any(parameter.requires_grad for parameter in model.parameters()):
             return model
         if self.device.type == 'cuda':
             ddp_kwargs.setdefault('device_ids', [self.device.index])

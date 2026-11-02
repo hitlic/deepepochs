@@ -1,14 +1,20 @@
 """
 @author: liuchen
 """
+import math
 import os
-from os import path as osp
-from copy import deepcopy
-from typing import Iterable
-import torch
-import numpy as np
 import random as rand
+import re
+import sys
 import time
+from copy import deepcopy
+from os import path as osp
+from typing import Iterable
+
+import numpy as np
+import torch
+from tqdm import tqdm as _tqdm
+from tqdm.utils import disp_len as _disp_len
 
 
 def set_seed(seed):
@@ -196,7 +202,7 @@ class TensorTuple(tuple):
         if len(self) > 0:
             return self[0].device
         else:
-            return torch.device(type='cpu')
+            return torch.device(type='cpu') # type: ignore
 
     def to(self, device, **kwargs):
         return TensorTuple(_to(t, device, **kwargs) for t in self)
@@ -240,7 +246,7 @@ class TensorDict(dict):
         for v in self.values():
             if hasattr(v, 'device'):
                 return v.device
-        return torch.device(type='cpu')
+        return torch.device(type='cpu') # type: ignore
 
     def to(self, device, **kwargs):
         return TensorDict({k: _to(v, device, **kwargs) for k, v in self.items()})
@@ -305,47 +311,80 @@ def flatten_dict(d, parent_key='', sep='.'):
     return dict(items)
 
 
-__MAX_LOG_INFO_LEN = 0          # 输出的最长字符串
-def __update_max_len(log_info): # 更新最长串
-    global __MAX_LOG_INFO_LEN
-    info_len = len(log_info)
-    __MAX_LOG_INFO_LEN = info_len if info_len > __MAX_LOG_INFO_LEN else __MAX_LOG_INFO_LEN
+__PROGRESS_ROWS = 0          # stdout中尚未提交的批次信息占用的物理行数
+_ANSI_STYLE = re.compile(r'\x1b\[[0-9;]*m')
+_COLOR_CODES = {'train': '36', 'val': '33', 'test': '35',
+                'success': '32', 'warning': '33', 'error': '31', 'heading': '1', 'duration': '90'}
+
+
+def _color(text, role):
+    """交互终端只突出标签；NO_COLOR和普通文件使用原始文字。"""
+    if not sys.stdout.isatty() or 'NO_COLOR' in os.environ or os.environ.get('TERM') == 'dumb':
+        return text
+    return f'\x1b[{_COLOR_CODES[role]}m{text}\x1b[0m'
+
+
+def _format_learning_rates(optimizers, round_to=4):
+    """列出各优化器的全部参数组，单一学习率使用简短形式。"""
+    rates = [(opt_index, group_index, float(group['lr']))
+             for opt_index, optimizer in enumerate(optimizers)
+             for group_index, group in enumerate(optimizer.param_groups)]
+    if not rates:
+        return '-'
+
+    def format_rate(value):
+        text = f'{value:.{max(round_to - 1, 0)}e}'
+        return text if math.isfinite(value) else _color(text, 'error')
+
+    if len(rates) == 1:
+        return format_rate(rates[0][2])
+    return ' '.join(f'opt{opt}/group{group}={format_rate(value)}' for opt, group, value in rates)
+
+
+def _format_duration(seconds):
+    if seconds < 60:
+        return f'{seconds:.2f}s'
+    minutes, seconds = divmod(round(seconds), 60)
+    hours, minutes = divmod(minutes, 60)
+    return f'{hours}h{minutes:02d}m{seconds:02d}s' if hours else f'{minutes}m{seconds:02d}s'
+
+
+def _terminal_columns():
+    """只依据当前stdout终端取得列宽；不可用时使用逐行输出。"""
+    if not sys.stdout.isatty():
+        return 0
+    try:
+        return os.get_terminal_size(sys.stdout.fileno()).columns
+    except OSError:
+        return 0
+
+
+def _clear_progress_line():
+    """清除当前批次占用的全部物理行，并回到首行开头。"""
+    global __PROGRESS_ROWS
+    if __PROGRESS_ROWS and sys.stdout.isatty():
+        clear = '\r\x1b[2K' + '\x1b[1A\r\x1b[2K' * (__PROGRESS_ROWS - 1)
+        print(clear, end='', flush=True)
+    __PROGRESS_ROWS = 0
 
 
 def log_batch(metrics, epoch_idx, epochs, batch_idx, batchs, stage, epoch_width=0, batch_width=0, round_to=4, tqdm_iter=None):
-    """
-    输出batch指标值
-    Args:
-        metrics:     指标值字典
-        epoch_idx:   当前epoch index
-        epochs:      总epochs数量
-        batch_idx:   当前batch index
-        batchs:      总batch数量
-        stage:       train、val或test
-        epoch_width: epoch的显示宽度
-        batch_width: batch的显示宽度
-        round_to:    指标值的小说保留位数
-    """
-    if not metrics:  # metrics为空则不输出
-        return
+    """刷新当前批次的损失与指标；没有逐批指标时仍显示进度计数。"""
     batch_info = info(metrics, round_to)
-    epoch_width = 4 if epoch_width==0 else epoch_width
-    batch_width = 4 if batch_width==0 else batch_width
+    epoch_width = 4 if epoch_width == 0 else epoch_width
+    batch_width = 4 if batch_width == 0 else batch_width
     epoch_idx, epochs = str(epoch_idx).rjust(epoch_width), str(epochs).ljust(epoch_width)
     batch_idx, batchs = str(batch_idx).rjust(batch_width), str(batchs).ljust(batch_width)
-
-    log_info = f'E {epoch_idx}/{epochs}  B {batch_idx}/{batchs}  {stage}> {batch_info}'
-    __update_max_len(log_info)
+    stage_label = _color(stage, stage.lower())
+    log_info = f'E {epoch_idx}/{epochs}  B {batch_idx}/{batchs}  {stage_label}> {batch_info}'
     print_out(log_info, end='', tqdm_iter=tqdm_iter)
 
 
-def log_epoch(stages_metrics, epoch_idx, epochs, epoch_width=0, round_to=4, tqdm_iter=None):
-    """输出epoch指标值
-    tqdm_iter: tqdm迭代对象
-    """
-    if not stages_metrics:  # stages_metrics为空则不输出
+def log_epoch(stages_metrics, epoch_idx, epochs, epoch_width=0, round_to=4, tqdm_iter=None, extra_info=''):
+    """将本轮训练/验证或测试指标保留为一行摘要。"""
+    if not stages_metrics:
         return
-    epoch_width = 4 if epoch_width==0 else epoch_width
+    epoch_width = 4 if epoch_width == 0 else epoch_width
     epoch_idx, epochs = str(epoch_idx).rjust(epoch_width), str(epochs).ljust(epoch_width)
 
     train_metrics = stages_metrics.get('train')
@@ -355,34 +394,67 @@ def log_epoch(stages_metrics, epoch_idx, epochs, epoch_width=0, round_to=4, tqdm
         train_info = info(train_metrics, round_to)
         val_info = ''
         if val_metrics is not None:
-            val_info = info(val_metrics, round_to)
-            val_info = '  VAL> ' + val_info
-
-        log_info = f'E {epoch_idx}/{epochs}  TRAIN> {train_info}{val_info}'
-        print_out(log_info, end='\n', tqdm_iter=tqdm_iter)  # 清除光标至行末字符
+            val_info = f'  {_color("VAL", "val")}> ' + info(val_metrics, round_to)
+        log_info = f'E {epoch_idx}/{epochs}  {_color("TRAIN", "train")}> {train_info}{val_info}'
     elif test_metrics is not None:
-        test_info = info(test_metrics, round_to)
-        log_info = f'E {epoch_idx}/{epochs}  TEST>  {test_info}'
-        __update_max_len(log_info)
-        print_out(log_info, end='\n', tqdm_iter=tqdm_iter)  # 清除光标至行末字符
+        log_info = f'E {epoch_idx}/{epochs}  {_color("TEST", "test")}>  {info(test_metrics, round_to)}'
     else:
-        raise ValueError("log_epoch 参数错误!")
+        raise ValueError('log_epoch 参数错误!')
+    if extra_info:
+        log_info = log_info.rstrip() + '   ' + extra_info
+    print_out(log_info, end='\n', tqdm_iter=tqdm_iter)
 
 
 def info(m_dict, round_to):
-    def v_str(v):
-        v = v.item() if isinstance(v, torch.Tensor) else v
-        return f'{{:.{round_to}f}}'.format(v).ljust(round_to+3)
-    return ' '.join([f'{k:>}: {v_str(v):<}' for k, v in m_dict.items()])
+    def v_str(value):
+        value = value.item() if isinstance(value, torch.Tensor) else value
+        if 0 < abs(value) < 10 ** -round_to:
+            text = f'{value:.{max(round_to - 1, 0)}e}'
+        else:
+            text = f'{value:.{round_to}f}'
+        padded = text.ljust(round_to + 3)
+        return padded if math.isfinite(value) else _color(padded, 'error')
+    return ' '.join(f'{key}: {v_str(value)}' for key, value in m_dict.items())
 
 
 def print_out(content, end='\n', tqdm_iter=None):
-    content += ' ' * (__MAX_LOG_INFO_LEN - len(content))
-    if tqdm_iter is None:
-        print(end='\r')  # \x1b[1K 清除行首至光标位置字符
-        print(content, flush=True, sep='', end=end)
+    global __PROGRESS_ROWS
+    columns = _terminal_columns()
+    if not columns:
+        # 文件或不可用的终端列宽使用逐行输出，不执行动态覆盖。
+        _clear_progress_line()
+        print(_ANSI_STYLE.sub('', content), end='\n' if end == '' else end, flush=True)
+    elif tqdm_iter is not None:
+        if end == '':
+            tqdm_iter.set_description_str(content)
+        else:
+            # 摘要单独写入历史，当前批次描述由下一批重新填充。
+            tqdm_iter.set_description_str('', refresh=False)
+            tqdm_iter.write(content, end=end, file=tqdm_iter.fp)
     else:
-        tqdm_iter.set_description_str(content)
+        _clear_progress_line()
+        print(('\r' if end == '' else '') + content, end=end, flush=True)
+        if end == '':
+            # 终端在最右列延迟换行：刚好填满一行时，光标仍在这一行。
+            __PROGRESS_ROWS = max(1, (_disp_len(content) - 1) // columns + 1)
+
+
+class _ConsoleProgress(_tqdm):
+    """训练器的进度条与普通批次输出共享同一套物理行清理。"""
+
+    def __str__(self):
+        values = self.format_dict.copy()
+        values['ncols'] = None
+        return self.format_meter(**values)
+
+    @staticmethod
+    def status_printer(file):
+        def write_status(message):
+            if message:
+                print_out(message, end='')
+            else:
+                _clear_progress_line()
+        return write_status
 
 
 def concat_dicts(dicts, to_np=True):
@@ -394,7 +466,7 @@ def concat_dicts(dicts, to_np=True):
 
 def sum_dicts(dicts, to_np=False):
     dicts = concat_dicts(dicts, to_np)
-    return ddict({k: sum(v) for k, v in dicts.items()})
+    return ddict({k: sum(v) for k, v in dicts.items()})  # type: ignore
 
 
 def keyset(dicts):

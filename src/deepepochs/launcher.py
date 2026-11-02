@@ -9,10 +9,10 @@ import torch
 import torch.distributed as dist
 
 
-def launch(main, num_processes=None):
+def launch(main, num_processes=None, args=()):
     """运行训练函数，并返回主进程的结果。
 
-    main是无参数的模块顶层函数，模型、优化器、DataLoader和Trainer均在
+    main是模块顶层函数，通过args传入位置参数。模型、优化器、DataLoader和Trainer均在
     函数内部创建。启动调用放在if __name__ == '__main__'中，支持Python
     脚本和IDE运行。多进程返回值应为可序列化的CPU数据，例如指标字典。
 
@@ -20,6 +20,8 @@ def launch(main, num_processes=None):
         main: 每个训练进程执行的函数。
         num_processes: 进程数；None使用可见CUDA设备数量，没有CUDA时为1。
             显式进程数也可用于CPU多进程，具体训练设备由main中的Trainer选择。
+        args: 传给main的位置参数元组，例如args=(config,)。多进程参数应为
+            普通可序列化数据；模型等训练对象在main内部创建。
 
     单进程直接调用main；torchrun进程和已初始化进程组也直接调用main，
     由现有启动方管理进程。多进程启动使用spawn，训练函数必须可被子进程导入。
@@ -32,11 +34,11 @@ def launch(main, num_processes=None):
 
     # 外部启动器已分配rank；进程组的初始化和所有权仍由Trainer或调用方管理。
     if 'RANK' in os.environ or (dist.is_available() and dist.is_initialized()):
-        return main()
+        return main(*args)
     if num_processes is None:
         num_processes = torch.cuda.device_count() if torch.cuda.is_available() else 1
     if num_processes == 1:
-        return main()
+        return main(*args)
 
     # 仅在需要创建worker时加载启动器，单进程导入保持轻量。
     from torch.distributed.launcher.api import LaunchConfig, elastic_launch
@@ -68,7 +70,7 @@ def launch(main, num_processes=None):
     if added_omp_threads:
         os.environ['OMP_NUM_THREADS'] = '1'
     try:
-        results = elastic_launch(config, main)()
+        results = elastic_launch(config, main)(*args)
         return results[0]
     finally:
         if added_omp_threads:

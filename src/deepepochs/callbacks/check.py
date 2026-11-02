@@ -1,11 +1,15 @@
 import os
+import random
 from copy import deepcopy
 from os import path as osp
 
+import numpy as np
 import torch
+from torch.utils.data.distributed import DistributedSampler
 
+from ..distributed import _DistributedEvalSampler
+from ..loops import StopLoopException, _color, check_path, info
 from .callback import Callback, CallbackException
-from ..loops import check_path, StopLoopException
 
 
 def _check_callbacks(trainer):
@@ -20,7 +24,7 @@ def _checkpoint_path(trainer, callback):
 
 
 class CheckCallback(Callback):
-    def __init__(self, monitor, on_stage='val', mode='min', patience=0, save_best=True, ckpt_dir='./logs'):
+    def __init__(self, monitor, on_stage='val', mode='min', patience=0, save_best=True, ckpt_dir='./logs', min_delta=0):
         """保存监控指标对应的Checkpoint，并按连续未改善的轮数早停。
 
         多个CheckCallback分别保存checkpoint-1.ckpt、checkpoint-2.ckpt；
@@ -32,26 +36,48 @@ class CheckCallback(Callback):
             patience: 连续未改善多少轮后停止，0表示不启用早停。
             save_best: True保存最佳，False保存最近一轮。
             ckpt_dir: 各次训练Checkpoint的父目录。
+            min_delta: 早停基准需要超过的非负绝对改善量；最佳权重仍按严格改善保存。
         """
         assert on_stage in ['train', 'val'], 'CheckCallback的`on_stage`参数取值为"train"或"val"'
         assert mode in ['min', 'max']
+        if not min_delta >= 0:
+            raise ValueError('min_delta 必须是非负数。')
         self.monitor = monitor
         self.on_stage = on_stage
         self.mode = mode
         self.patience = patience
+        self.min_delta = min_delta
         self.save_best = save_best
         self.ckpt_dir = ckpt_dir
         self.ckpt_path = None
         self.best_value = float('-inf') if mode == 'max' else float('inf')
+        self.early_stop_baseline = self.best_value
         self.worse_times = 0
+        self._checkpoint_message = None
         super().__init__(priority=-1)
+
+    def state_dict(self):
+        return {
+            'best_value': self.best_value, 'early_stop_baseline': self.early_stop_baseline,
+            'worse_times': self.worse_times,
+        }
+
+    def load_state_dict(self, state):
+        self.best_value = state['best_value']
+        self.early_stop_baseline = state.get('early_stop_baseline', self.best_value)
+        self.worse_times = state['worse_times']
 
     def check(self, trainer, metrics, model, opt, epoch_idx, defer=False):
         """更新监控状态；defer用于等待本轮其他回调更新后统一保存。"""
         value = float(metrics[self.monitor])
+        self._last_value = value
         better = value > self.best_value if self.mode == 'max' else value < self.best_value
         if better:
             self.best_value = value
+        sufficient = value > self.early_stop_baseline + self.min_delta if self.mode == 'max' else \
+            value < self.early_stop_baseline - self.min_delta
+        if sufficient:
+            self.early_stop_baseline = value
             self.worse_times = 0
         else:
             self.worse_times += 1
@@ -64,9 +90,25 @@ class CheckCallback(Callback):
                            checkpoint_paths={ordinal: self._save_path},
                            best_value=self.best_value, worse_times=self.worse_times, epoch=epoch_idx)
                 self.ckpt_path = self._save_path
+                self._record_saved(trainer, epoch_idx)
         return not (self.patience > 0 and self.worse_times >= self.patience)
 
+    def _record_saved(self, trainer, epoch_idx):
+        """成功提交文件后固定保存时的值与策略，训练结束时只汇总最后一份快照。"""
+        label = 'BEST' if self.save_best else 'LATEST'
+        metric = info({self.monitor: self._last_value}, trainer.default_cbk.round_to).strip()
+        self._checkpoint_message = (f"{_color('[' + label + ']', 'success')} {self.on_stage} {metric}"
+                                    f' | epoch={epoch_idx + 1} | checkpoint={self.ckpt_path}')
+
+    def on_after_fit(self, trainer):
+        if self._checkpoint_message is not None:
+            trainer.print(self._checkpoint_message)
+        elif self.ckpt_path is not None:
+            trainer.print(f"{_color('[CHECKPOINT]', 'heading')} monitor: {self.on_stage}/{self.monitor}"
+                          f' | checkpoint: {self.ckpt_path}')
+
     def on_before_fit(self, trainer, epochs):
+        self._checkpoint_message = None
         if trainer.resume is False or getattr(self, '_resume_loaded', False):
             return
         callbacks = _check_callbacks(trainer)
@@ -86,12 +128,15 @@ class CheckCallback(Callback):
         path = trainer.distributed.broadcast_object(path)
         if path is None:
             # resume=True也用于首次启动，目录中没有checkpoint时保留从头训练的用法。
-            trainer.print('No checkpoint found; starting a new training run.')
+            trainer.print(f"{_color('[RESUME]', 'heading')} No checkpoint found; starting a new training run.")
             for callback in callbacks:
                 callback._resume_loaded = True
             return
-        trainer.print(f'loading checkpoint {path} ...')
-        load_state(trainer, path)
+        state = _broadcast_state(trainer, path)
+        trainer.print(f"{_color('[RESUME]', 'heading')} checkpoint={path}")
+        trainer._pending_fit_state = (state, osp.abspath(path), True)
+        for callback in callbacks:
+            callback._resume_loaded = True
 
     def on_after_epoch(self, trainer, train_tasks, val_tasks, train_metrics, val_metrics, epoch_idx):
         if self.on_stage == 'val':
@@ -107,11 +152,12 @@ class CheckCallback(Callback):
         if trainer.main_process:
             try:
                 keep_training = self.check(trainer, metrics, trainer.model, trainer.opt, epoch_idx, defer=True)
-                decision = (keep_training, self.best_value, self.worse_times, self.ckpt_path,
-                            self._should_save, self._save_path, None)
+                decision = (keep_training, self.best_value, self.early_stop_baseline,
+                            self.worse_times, self.ckpt_path, self._should_save, self._save_path, None)
             except Exception as error:
-                decision = (False, self.best_value, self.worse_times, self.ckpt_path, False, None, error)
-        keep_training, self.best_value, self.worse_times, self.ckpt_path, should_save, save_path, error = \
+                decision = (False, self.best_value, self.early_stop_baseline,
+                            self.worse_times, self.ckpt_path, False, None, error)
+        keep_training, self.best_value, self.early_stop_baseline, self.worse_times, self.ckpt_path, should_save, save_path, error = \
             trainer.distributed.broadcast_object(decision)
         if error is not None:
             raise error
@@ -122,21 +168,6 @@ class CheckCallback(Callback):
         if not defer:
             finalize_checkpoints(trainer)
 
-    def on_before_test_epochs(self, trainer, tasks):
-        if self.ckpt_path is None or getattr(trainer, '_test_model_state', None) is not None:
-            return
-        selected = next(callback for callback in _check_callbacks(trainer) if callback.ckpt_path is not None)
-        if selected is not self:
-            return
-        trainer.print(f'loading best model from {self.ckpt_path} ...')
-        state = _broadcast_state(trainer, self.ckpt_path)
-        # state_dict是独立映射；复制到CPU保留参数和buffer，同时不多占一份GPU模型。
-        original = trainer.model.state_dict()
-        for key, value in original.items():
-            original[key] = value.detach().cpu().clone() if isinstance(value, torch.Tensor) else deepcopy(value)
-        trainer._test_model_state = original
-        trainer.model.load_state_dict(state['model_state'])
-
 
 def finalize_checkpoints(trainer, callback_error=None):
     """在所有after_epoch回调完成后保存完整状态，再统一决定是否停止。"""
@@ -146,6 +177,10 @@ def finalize_checkpoints(trainer, callback_error=None):
     trainer._pending_checkpoints = []
     decision = None
     callbacks = _check_callbacks(trainer)
+    try:
+        rank_states = _collect_rank_states(trainer) if any(item[1] for item in pending) else None
+    except Exception as error:
+        raise error from callback_error
     if trainer.main_process:
         try:
             # 快照记录所有计划成功的目标；实际路径只在对应文件写入成功后提交。
@@ -154,12 +189,14 @@ def finalize_checkpoints(trainer, callback_error=None):
             for callback, should_save, _, epoch_idx, path in pending:
                 if should_save:
                     save_state(trainer, trainer.model, trainer.opt, path, checkpoint_paths=planned_paths,
-                               best_value=callback.best_value, worse_times=callback.worse_times,
+                               rank_states=rank_states, best_value=callback.best_value, worse_times=callback.worse_times,
                                epoch=epoch_idx)
                     callback.ckpt_path = path
+                    callback._record_saved(trainer, epoch_idx)
             stopped = next((callback for callback, _, keep, _, _ in pending if not keep), None)
-            message = None if stopped is None else \
-                f'Early stopping triggered, by monitoring [{stopped.on_stage} {stopped.monitor}]!'
+            message = None if stopped is None else (
+                f'Early stopping triggered: {stopped.on_stage} {stopped.monitor}'
+                f' | best={stopped.best_value:g} | patience={stopped.worse_times}/{stopped.patience}')
             decision = (message, None, [callback.ckpt_path for callback in callbacks])
         except Exception as error:
             decision = (None, error, [callback.ckpt_path for callback in callbacks])
@@ -201,42 +238,222 @@ def _broadcast_state(trainer, ckpt_path):
     return state
 
 
-def load_state(trainer, ckpt_path):
-    """主进程读取训练状态并广播，各进程恢复到相同的下一轮。"""
-    state = _broadcast_state(trainer, ckpt_path)
+def _restore_training_state(trainer, state, ckpt_path, restore_model=True):
     checkpoint_file = state['checkpoint_file']
     callback_states = state['callback_states']
-    actual_path = osp.abspath(ckpt_path)
-    trainer.model.load_state_dict(state['model_state'])
-    trainer.opt.load_state_dict(state['opt_state'])
-    if trainer.scaler.is_enabled() and state.get('scaler_state'):
-        trainer.scaler.load_state_dict(state['scaler_state'])
-    trainer.init_epoch = state['epoch'] + 1
+    if restore_model:
+        trainer.model.load_state_dict(state['model_state'])
+        trainer.opt.load_state_dict(state['opt_state'])
+        if trainer.scaler.is_enabled() and state.get('scaler_state'):
+            trainer.scaler.load_state_dict(state['scaler_state'])
+        trainer.init_epoch = state['epoch'] + 1
     for ordinal, callback in enumerate(_check_callbacks(trainer)):
         saved = next((item for item in callback_states
                       if item['monitor'] == callback.monitor and item['on_stage'] == callback.on_stage
                       and item['ordinal'] == ordinal), None)
         if saved is not None:
-            callback.best_value = saved['best_value']
-            callback.worse_times = saved['worse_times']
+            callback.load_state_dict(saved)
             relative = saved['checkpoint_path']
             if relative is None:
                 callback.ckpt_path = None
             elif relative == checkpoint_file:
-                # 当前文件可以改名；兄弟监控器仍指向各自的最佳文件。
-                callback.ckpt_path = actual_path
+                callback.ckpt_path = osp.abspath(ckpt_path)
             else:
-                callback.ckpt_path = osp.normpath(osp.join(osp.dirname(actual_path), relative))
+                callback.ckpt_path = osp.normpath(osp.join(osp.dirname(osp.abspath(ckpt_path)), relative))
         callback._resume_loaded = True
+
+
+def load_state(trainer, ckpt_path):
+    """立即恢复训练状态；回调、数据采样和随机数在下一次 fit 初始化后恢复。"""
+    state = _broadcast_state(trainer, ckpt_path)
+    _restore_training_state(trainer, state, ckpt_path)
+    trainer._pending_fit_state = (state, osp.abspath(ckpt_path), False)
     return state
 
 
-def save_state(trainer, model, opt, path, checkpoint_paths=None, **kwargs):
+def _callback_identity(callback, ordinal):
+    cls = type(callback)
+    # spawn导入入口模块时使用__mp_main__，回调身份沿用脚本的主模块名。
+    module = '__main__' if cls.__module__ == '__mp_main__' else cls.__module__
+    return f'{module}.{cls.__qualname__}', getattr(callback, '_callback_ordinal', ordinal)
+
+
+def _fit_loaders(trainer, train_tasks=None, val_tasks=None):
+    stages = (('train', getattr(trainer, 'train_tasks', []) if train_tasks is None else train_tasks),
+              ('val', getattr(trainer, 'val_tasks', []) if val_tasks is None else val_tasks))
+    for stage, tasks in stages:
+        for ordinal, task in enumerate(tasks):
+            loader = getattr(task, f'_{stage}_dataloader', None)
+            if loader is not None:
+                yield stage, ordinal, loader
+
+
+def _loader_state(loader):
+    state = {}
+    for name, target in (('loader', loader), ('sampler', getattr(loader, 'sampler', None)),
+                         ('batch_sampler', getattr(loader, 'batch_sampler', None)),
+                         ('batch_sampler_sampler', getattr(getattr(loader, 'batch_sampler', None), 'sampler', None))):
+        values = {}
+        generator = getattr(target, 'generator', None)
+        if isinstance(generator, torch.Generator):
+            values['generator'] = generator.get_state()
+        if isinstance(target, (DistributedSampler, _DistributedEvalSampler)):
+            values['seed'] = target.seed
+        if values:
+            state[name] = values
+    return state
+
+
+def _restore_loader_state(loader, state):
+    targets = {'loader': loader, 'sampler': getattr(loader, 'sampler', None),
+               'batch_sampler': getattr(loader, 'batch_sampler', None),
+               'batch_sampler_sampler': getattr(getattr(loader, 'batch_sampler', None), 'sampler', None)}
+    for name, values in state.items():
+        target = targets[name]
+        generator = getattr(target, 'generator', None)
+        if 'generator' in values and isinstance(generator, torch.Generator):
+            generator.set_state(values['generator'])
+        if 'seed' in values and isinstance(target, (DistributedSampler, _DistributedEvalSampler)):
+            target.seed = values['seed']
+
+
+def _cpu_state(value):
+    """回调显式状态使用独立CPU存储，避免对象通信携带设备或计算图。"""
+    if isinstance(value, torch.Tensor):
+        return value.detach().to(device='cpu', copy=True)
+    if isinstance(value, dict):
+        return {key: _cpu_state(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return type(value)(_cpu_state(item) for item in value)
+    return deepcopy(value)
+
+
+def collect_rank_state(trainer):
+    """采集本进程的 epoch 边界状态，不执行进程间通信。"""
+    random_state = {'python': random.getstate(), 'numpy': np.random.get_state(),
+                    'torch': torch.get_rng_state()}
+    if trainer.device.type == 'cuda':
+        random_state['cuda'] = torch.cuda.get_rng_state(trainer.device)
+    return {
+        'random': random_state,
+        'callbacks': [{'identity': _callback_identity(callback, ordinal),
+                       'state': _cpu_state(callback.state_dict())}
+                      for ordinal, callback in enumerate(trainer.callbacks)],
+        'loaders': [{'stage': stage, 'ordinal': ordinal, 'state': _loader_state(loader)}
+                    for stage, ordinal, loader in _fit_loaders(trainer)],
+    }
+
+
+def _collect_rank_states(trainer):
+    try:
+        payload = (collect_rank_state(trainer), None)
+    except Exception as error:
+        payload = (None, error)
+    gathered = trainer.distributed.all_gather_object(payload)
+    for _, error in gathered:
+        if error is not None:
+            raise error
+    return [state for state, _ in gathered]
+
+
+def prepare_fit_state(trainer):
+    """在初始化回调前保存显式加载后的当前训练状态，包括调用方的修改。"""
+    pending = getattr(trainer, '_pending_fit_state', None)
+    if pending is None or pending[2]:
+        return
+    state, path, _ = pending
+    # state_dict容器独立于模型；保留其元数据，仅将各字段复制到CPU存储。
+    model_state = trainer.model.state_dict()
+    for key, value in model_state.items():
+        model_state[key] = _cpu_state(value)
+    state = {**state,
+             'model_state': model_state,
+             'opt_state': _cpu_state(trainer.opt.state_dict()),
+             'scaler_state': _cpu_state(trainer.scaler.state_dict()),
+             'epoch': trainer.init_epoch - 1}
+    trainer._pending_fit_state = (state, path, True)
+
+
+def restore_fit_state(trainer, train_tasks, val_tasks):
+    """在所有 before_fit 回调结束后，恢复待处理的 epoch 边界状态。"""
+    pending = getattr(trainer, '_pending_fit_state', None)
+    if pending is None:
+        return
+    state, path, restore_model = pending
+    _restore_training_state(trainer, state, path, restore_model=restore_model)
+    rank_states = state.get('rank_states', [])
+    same_world_size = state.get('world_size') == trainer.world_size and len(rank_states) == trainer.world_size
+    if rank_states:
+        local = rank_states[trainer.rank] if same_world_size else rank_states[0]
+        callback_states = {tuple(item['identity']): item['state'] for item in local['callbacks']}
+        for ordinal, callback in enumerate(trainer.callbacks):
+            saved = callback_states.get(_callback_identity(callback, ordinal))
+            if saved is not None:
+                callback.load_state_dict(saved)
+        if same_world_size:
+            loaders = {(item['stage'], item['ordinal']): item['state'] for item in local['loaders']}
+            for stage, ordinal, loader in _fit_loaders(trainer, train_tasks, val_tasks):
+                if (stage, ordinal) in loaders:
+                    _restore_loader_state(loader, loaders[stage, ordinal])
+            trainer._pending_fit_random_state = local['random']
+    del trainer._pending_fit_state
+
+
+def restore_fit_random_state(trainer):
+    """在模型同步完成后恢复本进程 RNG，随后进入下一轮。"""
+    state = getattr(trainer, '_pending_fit_random_state', None)
+    if state is None:
+        return
+    random.setstate(state['python'])
+    np.random.set_state(state['numpy'])
+    torch.set_rng_state(state['torch'])
+    if 'cuda' in state and trainer.device.type == 'cuda':
+        torch.cuda.set_rng_state(state['cuda'], trainer.device)
+    del trainer._pending_fit_random_state
+
+
+def load_evaluation_model(trainer, weights='auto'):
+    """选择评估权重，保留当前模型供 restore_test_model 恢复。"""
+    if weights == 'current':
+        trainer.print(f"{_color('[WEIGHTS]', 'heading')} Using current model weights")
+        return
+    selected = None
+    if weights == 'auto':
+        selected = next((callback for callback in _check_callbacks(trainer) if callback.ckpt_path is not None), None)
+        if selected is None:
+            trainer.print(f"{_color('[WEIGHTS]', 'heading')} Using current model weights")
+            return
+        path = selected.ckpt_path
+    elif isinstance(weights, CheckCallback):
+        selected = weights
+        path = weights.ckpt_path
+        if path is None:
+            raise ValueError('所选 CheckCallback 尚无 checkpoint。')
+    elif isinstance(weights, (str, os.PathLike)):
+        path = weights
+    else:
+        raise TypeError('weights 必须为 auto、current、CheckCallback 或 checkpoint 路径。')
+    state = _broadcast_state(trainer, path)
+    if getattr(trainer, '_test_model_state', None) is None:
+        original = trainer.model.state_dict()
+        for key, value in original.items():
+            original[key] = value.detach().cpu().clone() if isinstance(value, torch.Tensor) else deepcopy(value)
+        trainer._test_model_state = original
+    trainer.model.load_state_dict(state['model_state'])
+    monitor = '' if selected is None else f' | monitor: {selected.on_stage}/{selected.monitor}'
+    epoch = state.get('epoch')
+    saved_epoch = '' if epoch is None else f' | saved epoch: {epoch + 1}'
+    trainer.print(f"{_color('[WEIGHTS]', 'heading')} Using checkpoint: {path}{monitor}{saved_epoch}")
+
+
+def save_state(trainer, model, opt, path, checkpoint_paths=None, rank_states=None, **kwargs):
     """保存当前模型、优化器、scaler和本轮所有监控器状态。"""
     if not trainer.main_process:
         return
     check_path(osp.dirname(osp.abspath(path)))
     state = {'model_state': model.state_dict(), 'opt_state': opt.state_dict(), **kwargs}
+    state['world_size'] = trainer.world_size
+    state['rank_states'] = [collect_rank_state(trainer)] if rank_states is None else rank_states
     snapshot_dir = osp.dirname(osp.abspath(path))
     state['checkpoint_file'] = osp.basename(path)
     state['callback_states'] = []
@@ -245,6 +462,7 @@ def save_state(trainer, model, opt, path, checkpoint_paths=None, **kwargs):
         state['callback_states'].append({
             'ordinal': ordinal, 'monitor': callback.monitor, 'on_stage': callback.on_stage,
             'best_value': callback.best_value, 'worse_times': callback.worse_times,
+            'early_stop_baseline': callback.early_stop_baseline,
             'checkpoint_path': osp.relpath(reference, snapshot_dir) if reference is not None else None,
         })
     if trainer.scaler.is_enabled():

@@ -2,7 +2,7 @@
 @author: liuchen
 """
 class Optimizer:
-    def __init__(self, opt, scheduler=None, sched_on='epoch', sched_with_loss=False):
+    def __init__(self, opt, scheduler=None, sched_on='epoch', sched_with_loss=False, monitor=None, on_stage='val'):
         """
         优化器组合，对优化器和学习率调度器进行统一管理。
         Args:
@@ -10,12 +10,18 @@ class Optimizer:
             scheduler:       torch.optim.lr_scheduler.*
             sched_on:        学习率调整是每个epoch还是每个step
             sched_with_loss: scheduler.step方法是否需要损失作为参数（例如ReduceLROnPlateau）
+            monitor:         epoch调度使用的完整指标键；None按唯一loss自动选择
+            on_stage:        显式monitor的阶段，train或val；未验证轮次跳过val调度
         """
         self.opt = opt
         self.scheduler = scheduler
         assert sched_on in ['step', 'epoch'], '`sched_on`取值为"step"或"epoch"!'
         self.sched_on = sched_on
         self.sched_with_loss = sched_with_loss
+        if on_stage not in ('train', 'val'):
+            raise ValueError('on_stage必须是train或val。')
+        self.monitor = monitor
+        self.on_stage = on_stage
 
     def zero_grad(self):
         self.opt.zero_grad()
@@ -40,6 +46,32 @@ class Optimizer:
                 self.sched_step(loss)
         else:
             raise ValueError('Optimizer.step方法的`at`参数取值为"step"或"epoch"')
+
+    def step_epoch(self, train_metrics, val_metrics, validated):
+        """epoch指标调度与各优化器自己的step损失窗口分别处理。"""
+        if self.scheduler is None or self.sched_on != 'epoch':
+            return
+        loss = None
+        if self.sched_with_loss:
+            if self.monitor is not None:
+                if self.on_stage == 'val' and not validated:
+                    return
+                metrics = val_metrics if self.on_stage == 'val' else train_metrics
+                if self.monitor not in metrics:
+                    raise ValueError(f'epoch调度指标不存在：{self.on_stage}/{self.monitor}')
+                loss = metrics[self.monitor]
+            else:
+                loss = self._unique_loss(val_metrics)
+                if loss is None:
+                    loss = self._unique_loss(train_metrics)
+        self.step(at='epoch', loss=loss)
+
+    @staticmethod
+    def _unique_loss(metrics):
+        keys = [key for key in metrics if key == 'loss' or key.endswith('/loss')]
+        if len(keys) > 1:
+            raise ValueError('多个任务提供loss，请用Optimizer的monitor和on_stage明确调度指标。')
+        return metrics[keys[0]] if keys else None
 
     def sched_step(self, loss):
         if self.scheduler is not None:
@@ -82,6 +114,10 @@ class Optimizers(list):
     def step(self, at='step', loss=None):
         for opt in self:
             opt.step(at, loss)
+
+    def step_epoch(self, train_metrics, val_metrics, validated):
+        for opt in self:
+            opt.step_epoch(train_metrics, val_metrics, validated)
 
     def state_dict(self):
         return [opt.state_dict() for opt in self]

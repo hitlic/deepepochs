@@ -1,5 +1,5 @@
 """
-使用多个优化器
+分别优化特征提取层与分类层：一次反向传播，使用两个优化器更新独立参数。
 """
 import torch
 from torch import nn
@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader, random_split
 from torchvision import transforms
 from torchvision.datasets import MNIST
 
-from deepepochs import Optimizer, Trainer
+from deepepochs import TrainerBase
 
 data_dir = './datasets'
 transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
@@ -20,27 +20,39 @@ train_dl = DataLoader(train_ds, batch_size=32)
 val_dl = DataLoader(val_ds, batch_size=32)
 test_dl = DataLoader(test_ds, batch_size=32)
 
-channels, width, height = (1, 28, 28)
-model = nn.Sequential(
-    nn.Flatten(),
-    nn.Linear(channels * width * height, 64),
-    nn.ReLU(),
-    nn.Dropout(0.1),
-    nn.Linear(64, 64),
-    nn.ReLU(),
-    nn.Dropout(0.1),
-    nn.Linear(64, 10)
-)
 
-# 定义多个优化器，实际使用中每个优化器应针对不同的模型组成部分
-# **注意：1. 大多数情况下不需要多个优化器，而是为模型参数分组，每个组使用不同的学习率；
-#        2. 多个优化器通常配合定制step方法，在step方法中手动调用optimize方法（该方法可指定优化器索引）
-opt1 = torch.optim.Adam(model.parameters(), lr=2e-4)
-opt2 = torch.optim.Adam(model.parameters(), lr=2e-4)
+class Classifier(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.features = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(28 * 28, 64),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Dropout(0.1),
+        )
+        self.classifier = nn.Linear(64, 10)
 
-opts = [opt1, opt2]                         # 第一种方式
-opts = [Optimizer(opt1), Optimizer(opt2)]   # 第二种方式，这种方式可为每个优化器指定调度器
+    def forward(self, x):
+        return self.classifier(self.features(x))
 
-trainer = Trainer(model, F.cross_entropy, opts, epochs=2)
-trainer.fit(train_dl, val_dl)
-trainer.test(test_dl)
+
+class MultiOptimizerTrainer(TrainerBase):
+    def train_step(self, batch_x, batch_y, **step_args):
+        model_out = self.model(batch_x)
+        # 计算损失并反向传播；do_optimize=False将参数更新留给下面两次调用。
+        self.loss(model_out, batch_y, do_optimize=False)
+        self.optimize(optimize_index=0)  # 更新特征层，并清空其梯度。
+        self.optimize(optimize_index=1)  # 更新分类层，并清空其梯度。
+
+
+model = Classifier()
+# 需要不同优化算法时使用多个优化器；仅学习率不同时可用单个优化器的参数分组。
+feature_opt = torch.optim.SGD(model.features.parameters(), lr=0.01, momentum=0.9)
+classifier_opt = torch.optim.Adam(model.classifier.parameters(), lr=0.001)
+
+with MultiOptimizerTrainer(model, F.cross_entropy, [feature_opt, classifier_opt], epochs=2) as trainer:
+    trainer.fit(train_dl, val_dl)
+    trainer.test(test_dl)

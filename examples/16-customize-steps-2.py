@@ -1,5 +1,5 @@
 """
-通过EpochTask定制train_step和eval_step和test_step
+通过EpochTask定制train_step、val_step和test_step
 """
 import torch
 from torch import nn
@@ -44,7 +44,6 @@ def metrics(preds, targets):
     }
 
 opt = torch.optim.Adam(model.parameters(), lr=2e-4)
-trainer = Trainer(model, F.cross_entropy, opt, epochs=2)  # 训练器
 
 
 # 通过EpochTask定制训练、验证和测试步
@@ -61,6 +60,7 @@ class MyTask(EpochTask):
             dict: 键为指标名，值为封装了数据和指标函数的PatchBase子类对象
         """
         model_out = self.model(batch_x)
+        # 计算损失、反向传播、更新参数并记录指标。
         self.loss(model_out, batch_y)
 
         # 记录指标值
@@ -79,6 +79,7 @@ class MyTask(EpochTask):
             dict: 键为指标名，值为封装了数据和指标函数的PatchBase子类对象
         """
         model_out = self.model(batch_x)
+        # 按do_loss设置计算损失并记录指标，不反向传播或更新参数。
         self.loss(model_out, batch_y)
 
         # 记录指标值
@@ -93,5 +94,6 @@ train_task = MyTask(train_dl)
 val_task = MyTask(val_dl)
 test_task = MyTask(test_dl)
 
-trainer.fit(train_tasks=train_task, val_tasks=val_task)                 # 训练、验证
-trainer.test(tasks=test_task)                                           # 测试
+with Trainer(model, F.cross_entropy, opt, epochs=2) as trainer:
+    trainer.fit(train_tasks=train_task, val_tasks=val_task)                 # 训练、验证
+    trainer.test(tasks=test_task)                                           # 测试

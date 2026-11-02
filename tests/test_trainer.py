@@ -9,7 +9,8 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from deepepochs import Callback, CheckCallback, EpochTask, GradClipCallback, Optimizer, Trainer
+from deepepochs import Callback, CheckCallback, EpochTask, GradClipCallback, LogCallback, Optimizer, Trainer
+from deepepochs.loops import StopLoopException
 
 
 def fit_quiet(trainer, *args, **kwargs):
@@ -241,6 +242,124 @@ class TrainerCorrectnessTests(unittest.TestCase):
             raw.step()
             scheduler.step()
         self.assertAlmostEqual(raw.param_groups[0]['lr'], 0.)
+
+
+class TrainerLifecycleTests(unittest.TestCase):
+    setUp = TrainerTests.setUp
+    trainer = TrainerTests.trainer
+
+    def test_explicit_retry_epochs_start_from_completed_progress(self):
+        for phase in ('batch', 'epoch'):
+            for error_type in (StopLoopException, RuntimeError):
+                with self.subTest(phase=phase, error=error_type.__name__):
+                    class StopOnce(Callback):
+                        enabled = True
+
+                        def stop(self):
+                            if self.enabled:
+                                self.enabled = False
+                                raise error_type('interrupt once')
+
+                        def on_after_train_batch(self, trainer, metrics, batch_idx):
+                            if phase == 'batch':
+                                self.stop()
+
+                        def on_after_epoch(self, trainer, **kwargs):
+                            if phase == 'epoch':
+                                self.stop()
+
+                    trainer = self.trainer(make_model(), epochs=5, callbacks=[StopOnce()])
+                    loader = DataLoader(TensorDataset(self.x, self.y), batch_size=5)
+                    try:
+                        if error_type is RuntimeError:
+                            with self.assertRaisesRegex(RuntimeError, 'interrupt once'):
+                                fit_quiet(trainer, loader)
+                        else:
+                            fit_quiet(trainer, loader)
+                        completed = 0 if phase == 'batch' else 1
+                        self.assertEqual(trainer.init_epoch, completed)
+                        result = fit_quiet(trainer, loader, epochs=1)
+                        self.assertEqual(len(result['train']['loss']), 1)
+                        self.assertEqual(trainer.init_epoch, completed + 1)
+                    finally:
+                        trainer.close()
+
+
+    def test_loss_denominator_matches_full_batch_accumulation(self):
+        inputs = torch.tensor([[0, 1, 2], [2, 0, 1]])
+        targets = torch.tensor([[0, -100, -100], [1, 0, 1]])
+        for weights in (None, torch.tensor([.5, 2.])):
+            with self.subTest(weighted=weights is not None):
+                model = nn.Embedding(3, 2)
+                reference = nn.Embedding(3, 2)
+                with torch.no_grad():
+                    model.weight.copy_(torch.tensor([[.1, .2], [.3, -.1], [-.2, .4]]))
+                    reference.weight.copy_(model.weight)
+
+                def loss(preds, labels):
+                    return nn.functional.cross_entropy(preds.transpose(1, 2), labels,
+                                                       ignore_index=-100, weight=weights)
+
+                def count(batch_x, batch_y):
+                    valid = batch_y[batch_y != -100]
+                    return valid.numel() if weights is None else weights[valid].sum().item()
+
+                raw = torch.optim.SGD(reference.parameters(), lr=.1)
+                expected_loss = loss(reference(inputs), targets)
+                expected_loss.backward()
+                raw.step()
+                with Trainer(model, loss, torch.optim.SGD(model.parameters(), lr=.1),
+                             epochs=1, device='cpu', gradient_accumulation_steps=2,
+                             show_info=False, log_batch=False) as trainer:
+                    result = fit_quiet(trainer, DataLoader(TensorDataset(inputs, targets), batch_size=1),
+                                       batch_size=count)
+                torch.testing.assert_close(model.weight, reference.weight)
+                self.assertAlmostEqual(float(result['train']['loss'][0]), float(expected_loss), places=6)
+
+    def test_retry_without_epochs_keeps_existing_target(self):
+        class StopOnce(Callback):
+            enabled = True
+
+            def on_after_epoch(self, trainer, **kwargs):
+                if self.enabled:
+                    self.enabled = False
+                    raise StopLoopException('interrupt once')
+
+        trainer = self.trainer(make_model(), epochs=3, callbacks=[StopOnce()])
+        loader = DataLoader(TensorDataset(self.x, self.y), batch_size=5)
+        try:
+            fit_quiet(trainer, loader)
+            self.assertEqual(trainer.init_epoch, 1)
+            result = fit_quiet(trainer, loader)
+            self.assertEqual(len(result['train']['loss']), 2)
+            self.assertEqual(trainer.init_epoch, 3)
+        finally:
+            trainer.close()
+
+    def test_context_closes_writer_on_normal_and_exception_exit(self):
+        for fail in (False, True):
+            with self.subTest(fail=fail), tempfile.TemporaryDirectory() as directory:
+                class CaptureWriter(Callback):
+                    def on_before_train_epoch(self, trainer, task):
+                        self.writer = trainer.logger
+                        self.worker = self.writer.file_writer.event_writer._async_writer._worker
+
+                    def on_after_train_batch(self, trainer, metrics, batch_idx):
+                        if fail:
+                            raise RuntimeError('training failed')
+
+                log = LogCallback(log_dir=directory)
+                capture = CaptureWriter()
+                trainer = self.trainer(make_model(), epochs=1, callbacks=[log, capture])
+                expected = self.assertRaisesRegex(RuntimeError, 'training failed') if fail else contextlib.nullcontext()
+                with expected:
+                    with trainer as active:
+                        self.assertIs(active, trainer)
+                        fit_quiet(active, DataLoader(TensorDataset(self.x, self.y), batch_size=5))
+                self.assertFalse(capture.worker.is_alive())
+                self.assertIsNone(trainer.logger)
+                self.assertIsNone(log.logger)
+                self.assertIsNone(capture.writer.file_writer)
 
 
 if __name__ == '__main__':

@@ -3,7 +3,7 @@
     1. Trainer中的`*step`方法与EpochTask中的`*step`方法作用完全相同，但EpochTask在fit或test中使用时更具灵活性。
     2. `step`方法优先级最高，即可用于训练也可用于验证和测试（定义了`step`方法，其他方法就会失效）
     3. `val_step`、`test_step`优先级高于`evaluate_step`方法
-    4. `EpochTask`中的`*step`方法优先级高于`Trainer`中的`*step`方法
+    4. 查找同名方法时优先使用EpochTask；例如Trainer.step仍优先于EpochTask.train_step
 """
 import torch
 from torch import nn
@@ -49,7 +49,6 @@ def metrics(preds, targets):
         'f1': mm.f1(conf_mat=cmat, average=avg),
     }
 
-trainer = Trainer(model, F.cross_entropy, opt, epochs=2)  # 训练器
 
 
 # 定制可用于训练、验证和测试的step方法
@@ -67,6 +66,7 @@ class MyTask(EpochTask):
             dict: 键为指标名，值为封装了数据和指标函数的PatchBase子类对象
         """
         model_out = self.model(batch_x)
+        # 训练时反向传播并更新参数；评估时按do_loss设置计算损失。
         self.loss(model_out, batch_y)
 
         # 记录指标值
@@ -77,5 +77,6 @@ train_task = MyTask(train_dl)
 val_task = MyTask(val_dl, do_loss=False)
 test_task = MyTask(test_dl, do_loss=False)
 
-trainer.fit(train_tasks=train_task, val_tasks=val_task)                 # 使用Task
-trainer.test(tasks=test_task)                                           # 使用Task
+with Trainer(model, F.cross_entropy, opt, epochs=2) as trainer:
+    trainer.fit(train_tasks=train_task, val_tasks=val_task)                 # 使用Task
+    trainer.test(tasks=test_task)                                           # 使用Task

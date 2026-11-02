@@ -81,14 +81,14 @@ def main():
     assert not before_move.exists() and source.is_file()
     checkpoint = relocated / source.name
 
-    first = CheckCallback('loss', on_stage='val', patience=2, save_best=True,
+    first = CheckCallback('full/loss', on_stage='val', patience=2, save_best=True,
                            ckpt_dir=str(args.output / 'continued'))
-    second = CheckCallback('val_score', on_stage='val', mode='max', save_best=False,
+    second = CheckCallback('full/val_score', on_stage='val', mode='max', save_best=False,
                             ckpt_dir=str(args.output / 'continued'))
     model = FixedLogits()
     raw = torch.optim.SGD(model.parameters(), lr=0.08)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(raw, patience=0, factor=0.5)
-    trainer = Trainer(model, F.cross_entropy, Optimizer(raw, scheduler, sched_with_loss=True),
+    trainer = Trainer(model, F.cross_entropy, Optimizer(raw, scheduler, sched_with_loss=True, monitor='full/loss'),
                       device=args.device, precision=args.precision, epochs=4,
                       callbacks=[first, second, AdvanceMarker()], running_id='single-gpu',
                       show_info=False, log_batch=False)
@@ -138,11 +138,13 @@ def main():
         handle = raw.register_step_post_hook(lambda *unused: optimizer_steps.append(True))
         try:
             history = quiet(trainer.fit,
-                            train_tasks=[EpochTask(train_loader, metrics=[train_f1]), EpochTask(train_loader)],
-                            val_tasks=[EpochTask(tiny_loader), EpochTask(val_loader, metrics=[val_score])])
+                            train_tasks=[EpochTask(train_loader, metrics=[train_f1], name='primary'),
+                                         EpochTask(train_loader, name='auxiliary')],
+                            val_tasks=[EpochTask(tiny_loader, name='tiny'),
+                                       EpochTask(val_loader, metrics=[val_score], name='full')])
         finally:
             handle.remove()
-        assert len(history['train']['loss']) == 1 and trainer.init_epoch == 4
+        assert len(history['train']['primary/loss']) == 1 and trainer.init_epoch == 4
         assert len(optimizer_steps) == 2
         assert model.anchor.item() == 4.
         assert raw.param_groups[0]['lr'] == 0.01

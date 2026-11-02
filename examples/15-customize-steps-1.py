@@ -63,6 +63,7 @@ class Trainer(TrainerBase):
             dict: 键为指标名，值为封装了数据和指标函数的PatchBase子类对象
         """
         model_out = self.model(batch_x)
+        # 计算损失、反向传播、更新参数并记录指标。
         self.loss(model_out, batch_y)
 
         # 记录指标值
@@ -81,13 +82,13 @@ class Trainer(TrainerBase):
             dict: 键为指标名，值为封装了数据和指标函数的PatchBase子类对象
         """
         model_out = self.model(batch_x)
+        # 按do_loss设置计算损失并记录指标，不反向传播或更新参数。
         self.loss(model_out, batch_y)
 
         # 记录指标值
         results = {'m_': TensorPatch(metrics).load(model_out, batch_y)}
         return results
 
-
-trainer = Trainer(model, F.cross_entropy, opt, epochs=2)    # 训练器
-trainer.fit(train_dl, val_dl, do_val_loss=False)            # 训练、验证
-trainer.test(test_dl, do_loss=False)                        # 测试
+with Trainer(model, F.cross_entropy, opt, epochs=2) as trainer:
+    trainer.fit(train_dl, val_dl, do_val_loss=False)            # 训练、验证
+    trainer.test(test_dl, do_loss=False)                        # 测试

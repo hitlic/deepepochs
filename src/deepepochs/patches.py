@@ -22,11 +22,15 @@
     - 继承PatchBase，实现load方法、forward方法和add方法，参数要求参见 2.
 """
 import abc
-from typing import Literal
-import torch
-from .metrics import confusion_matrix, get_class_num, accuracy, precision, recall, fbeta
-from .loops import keyset
+import traceback
 from copy import copy, deepcopy
+from typing import Literal
+
+import torch
+import torch.distributed as dist
+
+from .loops import keyset
+from .metrics import accuracy, confusion_matrix, fbeta, get_class_num, precision, recall
 
 
 def patch_name(key, patch):
@@ -101,62 +105,182 @@ def _restore_data(value, prototype, device=None):
     return value
 
 
-def aggregate_patch_dicts(patch_dicts, context):
-    """每个指标交给持有原型的首个进程计算，再把结果广播给所有进程。"""
-    if not context.is_distributed:
-        return run_patch_dict(_sum_patch_dicts(patch_dicts))
+def _statistic_metadata(value):
+    if isinstance(value, torch.Tensor) and value.layout == torch.strided:
+        return ('tensor', tuple(value.shape), value.dtype)
+    if type(value) is float:
+        return ('float', (), torch.float64)
+    if type(value) is int:
+        return ('int', (), torch.int64)
+    if isinstance(value, dict):
+        metadata = {key: _statistic_metadata(item) for key, item in value.items()}
+        if all(item is not None for item in metadata.values()):
+            return metadata
+    return None
 
-    # 只传数据状态。局部函数和局部 Patch 类保留在持有该指标的进程；
-    # 自定义采样器可以让 rank 0 没有数据，动态指标也不必在每个进程出现。
-    local_patches = {}
-    try:
-        local_patches = _sum_patch_dicts(patch_dicts)
-        local_states = {
-            key: {name: _cpu_data(value) for name, value in vars(patch).items()
-                  if not callable(value)}
-            for key, patch in local_patches.items()
-        }
-    except Exception as error:
-        # 异常也只传类型名和文本，避免局部异常类本身需要 pickle。
-        local_states = (type(error).__name__, str(error))
-    gathered = context.all_gather_object(local_states)
-    owners = {}
+
+def _reduction_metadata(patch):
+    # 只识别内置实现；子类的 add / forward 可以有不同的累计语义。
+    if type(patch) in (ValuePatch, MeanPatch):
+        fields = ('batch_size', 'batch_value')
+        settings = None
+    elif type(patch) in (ConfusionPatch, ConfusionMetrics):
+        fields = ('confusion_matrix',)
+        settings = (tuple(sorted(patch.metrics)), patch.average) if type(patch) is ConfusionMetrics else None
+    else:
+        return None
+    state = {name: _statistic_metadata(getattr(patch, name)) for name in fields}
+    if any(value is None for value in state.values()):
+        return None
+    return (type(patch).__name__, state, settings)
+
+
+def _reduce_statistic(value, metadata, device):
+    if isinstance(metadata, dict):
+        return {key: _reduce_statistic(value[key] if value is not None else None, item, device)
+                for key, item in metadata.items()}
+    kind, shape, dtype = metadata
+    tensor = torch.zeros(shape, dtype=dtype, device=device) if value is None else \
+        torch.as_tensor(value, dtype=dtype, device=device).detach().clone()
+    dist.all_reduce(tensor)
+    if kind == 'tensor':
+        return tensor.to(value.device) if value is not None else tensor
+    return tensor.item()
+
+
+def _patch_error(key, error):
+    # traceback 对象不能跨进程传递，文本保留用户指标的原始调用位置。
+    return key, type(error).__name__, str(error), traceback.format_exc()
+
+
+def _check_gathered_states(gathered):
     for rank, states in enumerate(gathered):
         if not isinstance(states, dict):
-            error_type, message = states
-            raise RuntimeError(f'指标状态聚合失败（rank {rank}，{error_type}）：{message}')
-        for key in states:
-            owners.setdefault(key, rank)
+            key, error_type, message, source_traceback = states
+            raise RuntimeError(f'指标 {key!r} 状态聚合失败（rank {rank}，{error_type}）：{message}\n{source_traceback}')
 
-    metrics = {}
-    for key, owner in owners.items():
-        payload = None
-        if context.rank == owner:
+
+class PatchAccumulator:
+    """逐批累计本地 Patch，在任务结束时统一归约并计算指标。"""
+
+    def __init__(self, context):
+        self.context = context
+        self.patches = {}
+        self._error = None
+
+    def add(self, patch_dict):
+        if self._error is not None:
+            return self
+        try:
+            for key, patch in patch_dict.items():
+                self.patches[key] = self.patches[key] + patch if key in self.patches else 0 + patch
+        except Exception as error:
+            if not self.context.is_distributed:
+                raise
+            # 批次数可以不同：累计错误留到所有进程都进入 compute 时一起报告。
+            self._error = _patch_error(key, error)
+        return self
+
+    def compute(self):
+        context = self.context
+        if not context.is_distributed:
+            return run_patch_dict(self.patches)
+
+        metadata = self._error
+        if metadata is None:
+            metadata = {}
             try:
-                prototype = local_patches[key]
-                patches = []
-                for states in gathered:
-                    if key not in states:
-                        continue
-                    patch = copy(prototype)
-                    patch.__dict__.update({name: _restore_data(value, getattr(prototype, name, None))
-                                           for name, value in states[key].items()})
-                    patch.reusable = False
-                    patches.append(patch)
-                payload = (patch_name(key, prototype), _cpu_data(sum(patches)()), None)
+                for key, patch in self.patches.items():
+                    metadata[key] = _reduction_metadata(patch)
             except Exception as error:
-                payload = (None, None, (type(error).__name__, str(error)))
-        name, value, error = context.broadcast_object(payload, src=owner)
-        if error is not None:
-            error_type, message = error
-            raise RuntimeError(f'指标 {key!r} 聚合失败（rank {owner}，{error_type}）：{message}')
-        metrics[name] = value
-    return metrics
+                metadata = _patch_error(key, error)
+        gathered_metadata = context.all_gather_object(metadata)
+        _check_gathered_states(gathered_metadata)
+        owners = {}
+        for rank, states in enumerate(gathered_metadata):
+            for key in states:
+                owners.setdefault(key, rank)
+
+        reductions = {}
+        for key, owner in owners.items():
+            spec = gathered_metadata[owner][key]
+            if spec is not None and all(states[key] == spec for states in gathered_metadata if key in states):
+                reductions[key] = spec
+
+        # TensorPatch 和自定义 Patch 仍保留完整状态；函数及局部类留在 owner。
+        fallback_keys = owners.keys() - reductions.keys()
+        gathered_states = None
+        if fallback_keys:
+            try:
+                states = {}
+                for key, patch in self.patches.items():
+                    if key in fallback_keys:
+                        states[key] = {name: _cpu_data(value) for name, value in vars(patch).items()
+                                       if not callable(value)}
+            except Exception as error:
+                states = _patch_error(key, error)
+            gathered_states = context.all_gather_object(states)
+            _check_gathered_states(gathered_states)
+
+        # Gloo 使用 CPU；NCCL 归约前将 Python / CPU 统计放到当前 CUDA 设备。
+        device = context.device if reductions and dist.get_backend() == 'nccl' else torch.device('cpu')
+        metrics = {}
+        for key, owner in owners.items():
+            reduced = None
+            if key in reductions:
+                prototype = self.patches.get(key)
+                reduced = {name: _reduce_statistic(getattr(prototype, name) if prototype is not None else None,
+                                                 spec, device)
+                           for name, spec in reductions[key][1].items()}
+            payload = None
+            if context.rank == owner:
+                try:
+                    prototype = self.patches[key]
+                    if reduced is not None:
+                        patch = copy(prototype)
+                        patch.__dict__.update(reduced)
+                    else:
+                        patches = []
+                        for states in gathered_states: # type: ignore
+                            if key not in states:
+                                continue
+                            patch = copy(prototype)
+                            patch.__dict__.update({name: _restore_data(value, getattr(prototype, name, None))
+                                                   for name, value in states[key].items()})
+                            patch.reusable = False
+                            patches.append(patch)
+                        patch = sum(patches)
+                    payload = (patch_name(key, prototype), _cpu_data(patch()), None) # type: ignore
+                except Exception as error:
+                    payload = (None, None, _patch_error(key, error))
+            name, value, error = context.broadcast_object(payload, src=owner)
+            if error is not None:
+                key, error_type, message, source_traceback = error
+                raise RuntimeError(f'指标 {key!r} 聚合失败（rank {owner}，{error_type}）：{message}\n{source_traceback}')
+            metrics[name] = value
+        return metrics
+
+
+def aggregate_patch_dicts(patch_dicts, context):
+    accumulator = PatchAccumulator(context)
+    for patch_dict in patch_dicts:
+        accumulator.add(patch_dict)
+    return accumulator.compute()
+
+
+def _detach_data(value):
+    if isinstance(value, torch.Tensor):
+        return value.detach()
+    if isinstance(value, dict):
+        return type(value)({key: _detach_data(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return type(value)(_detach_data(item) for item in value)
+    return value
 
 
 def _concat_data(values):
     first = values[0]
-    if len(values) == 1:
+    if len(values) == 1 or first is None:
         return first
     if isinstance(first, dict):
         return {key: _concat_data([value[key] for value in values]) for key in first}
@@ -371,6 +495,8 @@ class TensorPatch(PatchBase):
             batch_pres:     一个mini_batch的模型预测
             batch_targets:  一个mini_batch的标签（当指标计算不需要标签时为空值）
         """
+        batch_preds = _detach_data(batch_preds)
+        batch_targets = _detach_data(batch_targets)
         self.batch_preds = [batch_preds] if isinstance(batch_preds, (list, tuple)) else [[batch_preds]]
         self.batch_targets = None if batch_targets is None else \
             ([batch_targets] if isinstance(batch_targets, (list, tuple)) else [[batch_targets]])

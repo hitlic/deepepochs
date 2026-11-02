@@ -1,6 +1,7 @@
 from matplotlib import pyplot as plt
-from .callback import Callback, CallbackException
+
 from ..loops import StopLoopException
+from .callback import Callback, CallbackException
 
 
 class LRFindCallback(Callback):
@@ -44,7 +45,9 @@ class LRFindCallback(Callback):
         self.batches_seen += 1
         stop = False
         if trainer.main_process:
-            batch_loss = float(metrics['loss'])
+            task = getattr(trainer, 'current_task', None)
+            loss_key = f'{task.name}/loss' if task is not None and task.name is not None else 'loss'
+            batch_loss = float(metrics[loss_key])
             self.best_loss = min(self.best_loss, batch_loss)
             self.losses.append(batch_loss)
             stop = self.batches_seen >= self.max_batch or batch_loss > self.best_loss * 10

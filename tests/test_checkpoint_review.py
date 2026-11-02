@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from deepepochs import CheckCallback, Optimizer, Trainer
 from deepepochs.callbacks.check import (
-    finalize_checkpoints, get_latest_running, load_state, restore_test_model,
+    finalize_checkpoints, get_latest_running, load_state, restore_fit_state, restore_test_model,
 )
 from deepepochs.loops import StopLoopException
 
@@ -140,6 +140,7 @@ class CheckpointReviewTests(unittest.TestCase):
             resumed_callback = CheckCallback('loss', on_stage='train', ckpt_dir=directory)
             resumed = self.trainer([resumed_callback], resume=True)
             self.quiet(resumed_callback.on_before_fit, resumed, 2)
+            restore_fit_state(resumed, [], [])
             self.assertEqual(resumed.init_epoch, 1)
             self.assertEqual(resumed_callback.ckpt_path, callback.ckpt_path)
 
@@ -166,6 +167,7 @@ class CheckpointReviewTests(unittest.TestCase):
             trainer = self.trainer([callback], resume=True)
             with self.assertRaisesRegex(KeyError, 'checkpoint_file'):
                 self.quiet(callback.on_before_fit, trainer, 1)
+                restore_fit_state(trainer, [], [])
             self.assertEqual(trainer.init_epoch, 0)
 
     def test_multi_monitor_files_include_complete_current_callback_states(self):

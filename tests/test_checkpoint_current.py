@@ -13,7 +13,7 @@ from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from deepepochs import Callback, CheckCallback, Trainer
-from deepepochs.callbacks.check import finalize_checkpoints, load_state
+from deepepochs.callbacks.check import finalize_checkpoints, load_state, restore_fit_state, _broadcast_state
 from deepepochs.loops import StopLoopException
 
 
@@ -65,8 +65,9 @@ class CheckpointCurrentTests(unittest.TestCase):
                     for index, callback in enumerate(callbacks):
                         callback.priority = -2 if index == first_to_run else -1
                     restored = self.trainer(callbacks, resume=True)
-                    with patch('deepepochs.callbacks.check.load_state', wraps=load_state) as load:
+                    with patch('deepepochs.callbacks.check._broadcast_state', wraps=_broadcast_state) as load:
                         self.quiet(restored.callbacks.trigger, 'before_fit', trainer=restored, epochs=3)
+                        restore_fit_state(restored, [], [])
                     self.assertEqual(load.call_count, 1)
                     self.assertEqual(Path(load.call_args.args[1]), Path(first.ckpt_path))
                     self.assertEqual(restored.init_epoch, 2)
@@ -88,8 +89,9 @@ class CheckpointCurrentTests(unittest.TestCase):
                          CheckCallback('score', on_stage='train', mode='max', ckpt_dir=second.ckpt_dir)]
             callbacks[0].priority, callbacks[1].priority = -1, -2
             restored = self.trainer(callbacks, resume='saved')
-            with patch('deepepochs.callbacks.check.load_state', wraps=load_state) as load:
+            with patch('deepepochs.callbacks.check._broadcast_state', wraps=_broadcast_state) as load:
                 self.quiet(restored.callbacks.trigger, 'before_fit', trainer=restored, epochs=3)
+                restore_fit_state(restored, [], [])
             self.assertEqual(load.call_count, 1)
             self.assertEqual(Path(load.call_args.args[1]), Path(selected_path))
             self.assertEqual(restored.init_epoch, 2)

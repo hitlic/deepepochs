@@ -40,29 +40,29 @@ opt = torch.optim.Adam(model.parameters(), lr=2e-4)
 # model = torch.compile(model)  # 在cpu和cuda下有可能显著提速
 
 # 4. --- train
-trainer = Trainer(
+
+with Trainer(
     model=model,                # Pytorch模型（nn.Module）
     loss=F.cross_entropy,       # 损失函数，             默认直接返回模型预测（要求模型预测输出为损失）
     opt=opt,                    # 优化器（或优化器列表）， 默认使用学习率为0.001的Adam优化器
     epochs=2,                   # 训练迭代次数，         默认取值1000
-    device='cpu',               # 加速设备，cpu、cuda 或 mps，默认情况下如果存在GPU或mps设备会自动使用
+    device='cpu',               # 加速设备，cpu、cuda 或 mps，默认使用CUDA，否则CPU；MPS需显式指定
     log_long=False,             # 输出为长格式（7位小数）还是短格式（4位小数）
     log_batch=True,             # 训练过程是，是否每个mini-batch都输出一次指标值
-    log_tqdm=False,             # 是否使用tqdm显示进度，如为True则log_batch将被设为False
+    log_tqdm=False,             # 是否使用tqdm显示进度；逐批输出由log_batch独立控制
     metric_patch='tensor',      # 指标累积计算方法，取值为'tensor'、'mean'或'confusion'
                                 #   - tensor    保存每个mini-batch的模型预测和标签计算epoch指标，计算和空间开销大但适用范围广
-                                #   - mean      保存每个mini-batch指标均的值，计算和空间开销小，但部分指标（如precision, recall等）不适用
+                                #   - mean      按真实计数加权累计批均值，状态占用固定；precision、recall等指标不适用
                                 #   - confusion 保存每个mini-batch的混淆矩阵，计算和空间开销小，要求指标的输入必须为混淆矩阵
-    )
+    ) as trainer:
+    trainer.fit(
+        train_dl=train_dl,          # 训练Dataloader
+        val_dl=val_dl,              # 验证Dataloader，None表示不进行验证
+        val_freq=1,                 # 验证频率
+        do_val_loss=True            # 是否计算验证损失
+        )
 
-trainer.fit(
-    train_dl=train_dl,          # 训练Dataloader
-    val_dl=val_dl,              # 验证Dataloader，None表示不进行验证
-    val_freq=1,                 # 验证频率
-    do_val_loss=True            # 是否计算验证损失
-    )
-
-trainer.test(
-    test_dl=test_dl,            # 测试Dataloader
-    do_loss=True                # 是否计算测试损失
-    )
+    trainer.test(
+        test_dl=test_dl,            # 测试Dataloader
+        do_loss=True                # 是否计算测试损失
+        )
