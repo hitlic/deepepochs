@@ -1,12 +1,12 @@
-"""通过launch完成单进程或单机多GPU训练、评估和日志收尾。 """
+"""通过launch完成单进程或单机多GPU训练、评估和日志收尾。"""
 import argparse
 import contextlib
 import io
 import json
 import math
 import os
-import signal
 from pathlib import Path
+import signal
 
 import torch
 import torch.distributed as dist

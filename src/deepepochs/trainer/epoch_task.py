@@ -1,13 +1,11 @@
 """
 @author: liuchen
 """
-from contextlib import nullcontext
-
 import torch
-
+from contextlib import nullcontext
 from ..loops import LoopException, flatten_dict, listify
 from ..loops import batch_size as guess_batch_size
-from ..patches import PatchBase, aggregate_patch_dicts, run_patch_dict
+from ..patches import PatchBase, run_patch_dict, aggregate_patch_dicts
 
 
 class EpochTask:

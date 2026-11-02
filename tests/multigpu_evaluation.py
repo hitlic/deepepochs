@@ -1,12 +1,12 @@
-"""torchrun下的CUDA/NCCL评估、回调与Checkpoint联调。 """
+"""torchrun下的CUDA/NCCL评估、回调与Checkpoint联调。"""
 import argparse
 import contextlib
+from copy import deepcopy
 import io
 import json
 import os
-import time
-from copy import deepcopy
 from pathlib import Path
+import time
 from unittest.mock import patch
 
 os.environ.setdefault('MPLBACKEND', 'Agg')
@@ -18,7 +18,8 @@ from torch.nn import functional as F
 from torch.utils.data import DataLoader, Sampler, TensorDataset
 from torch.utils.tensorboard import SummaryWriter
 
-from deepepochs import Callback, CheckCallback, EpochTask, InterpreteCallback, Optimizer, PatchBase, Trainer, __version__, metrics
+from deepepochs import Callback, CheckCallback, EpochTask, InterpreteCallback, Optimizer, PatchBase, Trainer, __version__
+from deepepochs import metrics
 from deepepochs.callbacks.check import finalize_checkpoints
 from deepepochs.distributed import DistributedContext
 from deepepochs.loops import StopLoopException

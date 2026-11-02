@@ -1,11 +1,9 @@
 from functools import partial
 from os import path as osp
-
 from torch.utils.tensorboard import SummaryWriter
-
-from ..loops import check_path, listify
 from .callback import Callback
 from .log import run_tensorboard
+from ..loops import listify, check_path
 
 
 class ListContainer():

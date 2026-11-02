@@ -1,20 +1,21 @@
-"""普通 Python 进程恢复 multigpu_evaluation 的产物，并继续一轮训练。 """
+"""普通 Python 进程恢复 multigpu_evaluation 的产物，并继续一轮训练。"""
 
 import argparse
+from copy import deepcopy
 import json
 import os
-import shutil
-from copy import deepcopy
 from pathlib import Path
+import shutil
 
 os.environ.setdefault('MPLBACKEND', 'Agg')
 
 import torch
-from multigpu_evaluation import FixedLogits, classification_data, quiet
 from torch.nn import functional as F
 from torch.utils.data import DataLoader, TensorDataset
 
-from deepepochs import Callback, CheckCallback, EpochTask, Optimizer, Trainer, metrics
+from multigpu_evaluation import FixedLogits, classification_data, quiet
+from deepepochs import Callback, CheckCallback, EpochTask, Optimizer, Trainer
+from deepepochs import metrics
 
 
 class AdvanceMarker(Callback):

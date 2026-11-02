@@ -14,6 +14,7 @@ from torch import nn
 from torch.utils.data import BatchSampler, DataLoader, Sampler, TensorDataset
 from torch.utils.data.distributed import DistributedSampler
 
+from deepepochs import Trainer
 from deepepochs.distributed import DistributedContext
 
 
@@ -43,13 +44,19 @@ def _distributed_checks(rank, port, directory):
         assert context.is_main_process == (rank == 0)
         assert context.device == torch.device('cpu')
 
-        # 验证初次下载对应的顺序：非主进程进入块时，主进程的缓存已存在。
+        # 通过 Trainer 的公开入口准备共享缓存；两个进程都会执行代码块。
         marker = Path(directory) / 'prepared'
-        with context.main_process_first():
-            if context.is_main_process:
-                marker.write_text('ready')
-            else:
+        trainer = Trainer(nn.Linear(1, 1), device='cpu', show_info=False, log_batch=False)
+        try:
+            visited = []
+            with trainer.ddp_data():
+                if trainer.main_process:
+                    marker.write_text('ready')
                 assert marker.read_text() == 'ready'
+                visited.append(rank)
+            assert context.all_gather_object(visited) == [[0], [1]]
+        finally:
+            trainer.close()
         context.barrier()
 
         dataset = TensorDataset(torch.arange(7.).view(-1, 1))
@@ -170,6 +177,18 @@ def _distributed_checks(rank, port, directory):
 
 
 class DistributedContextTests(unittest.TestCase):
+    def test_single_process_ddp_data_executes_once(self):
+        with patch.dict(os.environ, {'WORLD_SIZE': '1', 'RANK': '0', 'LOCAL_RANK': '0'}):
+            trainer = Trainer(nn.Linear(1, 1), device='cpu', show_info=False, log_batch=False)
+        try:
+            prepared = []
+            with trainer.ddp_data():
+                prepared.append('ready')
+            self.assertEqual(prepared, ['ready'])
+            self.assertFalse(dist.is_initialized())
+        finally:
+            trainer.close()
+
     def test_single_process_preserves_loader_and_model(self):
         with patch.dict(os.environ, {'WORLD_SIZE': '1', 'RANK': '0', 'LOCAL_RANK': '0'}):
             context = DistributedContext('cpu')

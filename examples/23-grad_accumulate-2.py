@@ -1,5 +1,5 @@
 """
-跨DataLoader batch梯度累积。 
+跨DataLoader batch梯度累积。
 
 gradient_accumulation_steps=2表示每两个batch更新一次参数。
 直接运行本文件会自动使用可见GPU，无GPU时使用单CPU进程。
@@ -47,20 +47,22 @@ def main():
                       precision='fp32',
                       gradient_accumulation_steps=2)
     try:
-        with trainer.main_process_first():
-            data_dir = './datasets'
-            transform = transforms.Compose([
-                transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))
-            ])
+        data_dir = './datasets'
+        transform = transforms.Compose([
+            transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))
+        ])
+        # 协调共享数据的下载与缓存准备，各进程随后使用相同文件。
+        with trainer.ddp_data():
             mnist_full = MNIST(data_dir, train=True, transform=transform, download=True)
-            # 独立生成器让每个进程使用相同的数据划分。
-            train_ds, val_ds, _ = random_split(
-                mnist_full, [5000, 5000, 50000], generator=torch.Generator().manual_seed(1)
-            )
             test_ds = MNIST(data_dir, train=False, transform=transform, download=True)
-            train_dl = DataLoader(train_ds, batch_size=32)
-            val_dl = DataLoader(val_ds, batch_size=32)
-            test_dl = DataLoader(test_ds, batch_size=32)
+
+        # 独立生成器让每个进程使用相同的数据划分。
+        train_ds, val_ds, _ = random_split(
+            mnist_full, [5000, 5000, 50000], generator=torch.Generator().manual_seed(1)
+        )
+        train_dl = DataLoader(train_ds, batch_size=32)
+        val_dl = DataLoader(val_ds, batch_size=32)
+        test_dl = DataLoader(test_ds, batch_size=32)
         trainer.fit(train_dl, val_dl)
         trainer.test(test_dl, do_loss=False)
     finally:

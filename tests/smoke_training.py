@@ -1,4 +1,4 @@
-"""同一脚本通过 python 或 torchrun 完成训练、评估和 Checkpoint 联调。 """
+"""同一脚本通过 python 或 torchrun 完成训练、评估和 Checkpoint 联调。"""
 import argparse
 import json
 import math
@@ -36,8 +36,8 @@ def main():
                       metrics=[accuracy], callbacks=[CheckCallback('loss', ckpt_dir=args.output)],
                       show_info=False, log_batch=False, running_id='smoke')
     try:
-        with trainer.main_process_first():
-            marker = Path(args.output) / 'data-ready'
+        marker = Path(args.output) / 'data-ready'
+        with trainer.ddp_data():
             if trainer.main_process:
                 marker.parent.mkdir(parents=True, exist_ok=True)
                 marker.write_text('ready')

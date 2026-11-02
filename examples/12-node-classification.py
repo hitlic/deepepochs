@@ -2,7 +2,7 @@
 利用图神经网络对节点进行分类
 需安装DGL：
     conda install -c dglteam dgl
-    或者 
+    或者
     pip install dgl -f https://data.dgl.ai/wheels/repo.html
 '''
 from functools import partial

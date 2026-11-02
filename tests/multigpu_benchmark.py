@@ -1,16 +1,16 @@
 """Measure Trainer throughput with a fixed per-GPU batch size (weak scaling).
 
 Run the same command with one, two and four processes, changing only the expected
-world size and output path. The primary timing window includes CPU collation, 
+world size and output path. The primary timing window includes CPU collation,
 host-to-device transfer, Trainer batch statistics and parameter updates. Epoch
 aggregation and epoch logging are outside that window; fit wall time includes them.
 """
 import argparse
 import json
 import math
+from pathlib import Path
 import statistics
 import time
-from pathlib import Path
 
 import torch
 from torch import nn
@@ -19,6 +19,7 @@ from torch.utils.data import DataLoader, Dataset
 import deepepochs
 from deepepochs import Callback, Trainer
 from deepepochs.distributed import DistributedContext
+
 
 IMAGE_SHAPE = (3, 224, 224)
 CHANNELS = (64, 128, 256, 512)

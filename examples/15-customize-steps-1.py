@@ -1,7 +1,7 @@
 """
 通过TrainerBase定制train_step和evaluate_step
 
-在定制的Trainer中，train_step和evaluate_step返回了Patch字典。 
+在定制的Trainer中，train_step和evaluate_step返回了Patch字典。
 """
 import torch
 from torch import nn

@@ -411,9 +411,12 @@ class TrainerBase:
             return self.model.model.no_sync()
         return nullcontext()
 
-    def main_process_first(self):
-        """在已构造 Trainer 后串行准备共享数据，单进程可使用相同代码。"""
-        return self.distributed.main_process_first()
+    def ddp_data(self):
+        """协调 DDP 共享数据准备；所有进程都会执行代码块。
+
+        主进程先完成，其他进程随后执行并复用已有文件或缓存；单进程直接执行。
+        """
+        return self.distributed.ddp_data()
 
     def _remove_analysis_hooks(self):
         for callback in self.callbacks:

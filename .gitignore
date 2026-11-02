@@ -99,3 +99,5 @@ MANIFEST.in
 deepepochs.egg-info
 progress.md
 examples/deepepochs
+test_results
+test_results/*

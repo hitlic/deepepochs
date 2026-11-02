@@ -199,8 +199,8 @@ class DistributedContext:
         return values[0]
 
     @contextmanager
-    def main_process_first(self):
-        """共享数据准备先由主进程完成，其他进程随后读取下载好的缓存。"""
+    def ddp_data(self):
+        """主进程先完成共享数据准备，其他进程随后执行相同代码；单进程直接执行。"""
         if not self.is_main_process:
             self.barrier()
         try:

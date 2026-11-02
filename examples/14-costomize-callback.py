@@ -1,5 +1,6 @@
 """
 自定义Callback
+
 利用Callback初始化模型参数
 """
 import torch

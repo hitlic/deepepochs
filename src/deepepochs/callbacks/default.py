@@ -1,8 +1,7 @@
 import torch
-
+from .callback import Callback
 from ..loops import log_batch, log_epoch
 from ..patches import ValuePatch
-from .callback import Callback
 
 
 class DefaultCallback(Callback):

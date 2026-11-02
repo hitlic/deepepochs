@@ -195,7 +195,9 @@ python examples/23-grad_accumulate-2.py
 
 ### 共享数据准备
 
-各进程都会执行 `main()`，下载数据或创建缓存时需要安排执行顺序。将准备代码放入 `with trainer.main_process_first():`，主进程先执行，随后其他进程执行相同代码并复用已有缓存。单进程脚本也可以使用这一上下文。
+各训练进程都会执行 `main()`，同时向同一目录下载、解压数据或创建缓存可能发生冲突。`Trainer.ddp_data()` 用于协调 DDP 训练中的共享数据准备：主进程先完成准备，其他进程随后执行相同代码并复用已有文件或缓存。
+
+将可能下载数据或创建共享缓存的操作放入 `with trainer.ddp_data():` 即可。路径和数据变换的定义、数据集划分及 DataLoader 创建都放在块外。单进程时直接执行块内代码，使用方式相同。
 
 ### 外部启动与进程管理
 
@@ -354,12 +356,12 @@ finally:
 
 | 环境 | 验证范围 | 结果 |
 | --- | --- | --- |
-| macOS，Conda `deepepochs`，Python 3.10、PyTorch 2.1.0 | CPU / Gloo | 139 项：116 项通过，23 项跳过（19 项 CUDA、4 项 CPU GradScaler） |
+| macOS，Conda `deepepochs`，Python 3.10、PyTorch 2.1.0 | CPU / Gloo | 140 项：117 项通过，23 项跳过（19 项 CUDA、4 项 CPU GradScaler） |
 | macOS，Conda `torch`，Python 3.12、PyTorch 2.8.0 | 指标、任务编排、CPU AMP 与启动入口 | 36 项定向：35 项通过，1 项 CUDA 跳过 |
 | 云端 4×RTX 3080，各 10 GiB，Python 3.11.8、PyTorch 2.2.2+cu121、CUDA 12.1、NCCL 2.19.3 | GPU 实测记录 | 130 项：126 项通过、4 项 CPU GradScaler 跳过；18 项 CUDA 全部通过，另 3 项打包测试在本地通过 |
 | 云端 RTX 3080，0.7.2 wheel | 单卡指标与三卡 FP16 | 单卡1项、三卡8项全部通过 |
 
-0.7.2 发行包的 GPU 复测覆盖原地更新后的混淆矩阵、预测与标签指标，以及三卡 FP16 的任务列表复用、全局指标、早停和调度；[最终发行包验证记录](test_results/release_0_7_2/summary.json)提供配置和结果。
+0.7.2 发行包的 GPU 复测覆盖原地更新后的混淆矩阵、预测与标签指标，以及三卡 FP16 的任务列表复用、全局指标、早停和调度；[发行包GPU验证记录](test_results/release_0_7_2/summary.json)提供配置和结果。
 
 CPU / Gloo 回归覆盖基础训练、Tensor 原地更新后的指标、任务列表复用、指标与 Patch 汇总、嵌套数据、多输入预测解释、学习率调度、Checkpoint 恢复与搬迁，以及停止和日志资源释放。启动入口还检查真实多进程训练、外部启动、结果返回、异常退出和调用方环境恢复。
 

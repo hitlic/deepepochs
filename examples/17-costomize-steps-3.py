@@ -2,7 +2,7 @@
 通过EpochTask定制`*step`:
     1. Trainer中的`*step`方法与EpochTask中的`*step`方法作用完全相同，但EpochTask在fit或test中使用时更具灵活性。
     2. `step`方法优先级最高，即可用于训练也可用于验证和测试（定义了`step`方法，其他方法就会失效）
-    3. `val_step`、`test_step`优先级高于`evaluate_step`方法 
+    3. `val_step`、`test_step`优先级高于`evaluate_step`方法
     4. `EpochTask`中的`*step`方法优先级高于`Trainer`中的`*step`方法
 """
 import torch

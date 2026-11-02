@@ -1,5 +1,5 @@
 """
-通过TrainerBase定制train_step，实现累积梯度训练。 
+通过TrainerBase定制train_step，实现累积梯度训练。
 """
 from contextlib import nullcontext
 

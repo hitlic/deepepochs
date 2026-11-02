@@ -10,7 +10,7 @@ from torchvision.datasets import MNIST
 
 from deepepochs import LRFindCallback, Trainer
 
-data_dir = './datasets' 
+data_dir = './datasets'
 transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))])
 mnist_full = MNIST(data_dir, train=True, transform=transform, download=True)
 train_ds, _ = random_split(mnist_full, [55000, 5000])

@@ -4,8 +4,8 @@ from os import path as osp
 
 import torch
 
-from ..loops import StopLoopException, check_path
 from .callback import Callback, CallbackException
+from ..loops import check_path, StopLoopException
 
 
 def _check_callbacks(trainer):

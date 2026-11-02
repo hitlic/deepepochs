@@ -1,6 +1,6 @@
 """
 1. Patch是对一个或多个mini-batch运行结果的封装，用于batch指标计算、epoch指标计算。
-2. Patch的重要方法： 
+2. Patch的重要方法：
     - __init__:  (metric, batch_size, name)      如果手动调用则参数无限制，如果在Trainer的参数则要求参数列表必须包含 (metric, batch_size)
     - forward:   ()                              用于计算或处理封装的数据，返回指标值或指标字典
     - load:      (batch_preds, batch_targets)    装入数据

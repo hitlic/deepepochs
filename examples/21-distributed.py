@@ -1,7 +1,7 @@
 """
 PyTorch分布式与混合精度训练。
 
-直接运行本文件会自动使用可见GPU，无GPU时使用单CPU进程。 
+直接运行本文件会自动使用可见GPU，无GPU时使用单CPU进程。
 在入口设置launch(main, num_processes=4)可指定四进程。
 DataLoader的batch_size=32表示每进程32个样本，全局批量随进程数增加。
 也可使用torchrun --standalone --nproc-per-node=4 examples/21-distributed.py。
@@ -48,20 +48,22 @@ def main():
                       precision=precision,
                       )
     try:
-        # 主进程完成首次下载后，其他进程再读取相同缓存。
-        with trainer.main_process_first():
-            data_dir = './datasets'
-            transform = transforms.Compose([
-                transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))
-            ])
+        data_dir = './datasets'
+        transform = transforms.Compose([
+            transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))
+        ])
+        # 协调共享数据的下载与缓存准备，各进程随后使用相同文件。
+        with trainer.ddp_data():
             mnist_full = MNIST(data_dir, train=True, transform=transform, download=True)
-            train_ds, val_ds = random_split(
-                mnist_full, [55000, 5000], generator=torch.Generator().manual_seed(42)
-            )
             test_ds = MNIST(data_dir, train=False, transform=transform, download=True)
-            train_dl = DataLoader(train_ds, batch_size=32)
-            val_dl = DataLoader(val_ds, batch_size=32)
-            test_dl = DataLoader(test_ds, batch_size=32)
+
+        # 独立生成器让每个进程使用相同的数据划分。
+        train_ds, val_ds = random_split(
+            mnist_full, [55000, 5000], generator=torch.Generator().manual_seed(42)
+        )
+        train_dl = DataLoader(train_ds, batch_size=32)
+        val_dl = DataLoader(val_ds, batch_size=32)
+        test_dl = DataLoader(test_ds, batch_size=32)
         trainer.fit(train_dl, val_dl)
         trainer.test(test_dl)
     finally:
