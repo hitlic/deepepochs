@@ -313,8 +313,8 @@ def flatten_dict(d, parent_key='', sep='.'):
 
 __PROGRESS_ROWS = 0          # stdout中尚未提交的批次信息占用的物理行数
 _ANSI_STYLE = re.compile(r'\x1b\[[0-9;]*m')
-_COLOR_CODES = {'train': '36', 'val': '33', 'test': '35',
-                'success': '32', 'warning': '33', 'error': '31', 'heading': '1', 'duration': '90'}
+_COLOR_CODES = {'train': '36', 'val': '36', 'test': '35',
+                'success': '32', 'warning': '33', 'error': '31', 'heading': '1', 'duration': '34'}
 
 
 def _color(text, role):
@@ -376,7 +376,7 @@ def log_batch(metrics, epoch_idx, epochs, batch_idx, batchs, stage, epoch_width=
     epoch_idx, epochs = str(epoch_idx).rjust(epoch_width), str(epochs).ljust(epoch_width)
     batch_idx, batchs = str(batch_idx).rjust(batch_width), str(batchs).ljust(batch_width)
     stage_label = _color(stage, stage.lower())
-    log_info = f'E {epoch_idx}/{epochs}  B {batch_idx}/{batchs}  {stage_label}> {batch_info}'
+    log_info = f'[E {epoch_idx}/{epochs}] [B {batch_idx}/{batchs}]  {stage_label}> {batch_info}'
     print_out(log_info, end='', tqdm_iter=tqdm_iter)
 
 
@@ -395,9 +395,9 @@ def log_epoch(stages_metrics, epoch_idx, epochs, epoch_width=0, round_to=4, tqdm
         val_info = ''
         if val_metrics is not None:
             val_info = f'  {_color("VAL", "val")}> ' + info(val_metrics, round_to)
-        log_info = f'E {epoch_idx}/{epochs}  {_color("TRAIN", "train")}> {train_info}{val_info}'
+        log_info = f'[E {epoch_idx}/{epochs}]  {_color("TRAIN", "train")}> {train_info}{val_info}'
     elif test_metrics is not None:
-        log_info = f'E {epoch_idx}/{epochs}  {_color("TEST", "test")}>  {info(test_metrics, round_to)}'
+        log_info = f'[E {epoch_idx}/{epochs}]  {_color("TEST", "test")}>  {info(test_metrics, round_to)}'
     else:
         raise ValueError('log_epoch 参数错误!')
     if extra_info:
